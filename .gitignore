@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+*.log
+.env
+.env.*
+
+# Spike artifacts (regenerated from the installed CLIs)
+scripts/spikes/codex-schema/
+scripts/spikes/output/
