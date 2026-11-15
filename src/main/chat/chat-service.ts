@@ -1,22 +1,57 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, ApprovalDecision, ApprovalRequest, Attachment, StoredEntry, UiEvent } from '@shared/types';
-import type { AdapterEvent, AgentAdapter, ApprovalPrompt } from '../agents/adapter';
+import type { AgentId, ApprovalDecision, ApprovalRequest, Attachment, Chat, Project, StoredEntry, UiEvent } from '@shared/types';
+import type { AdapterEvent, AgentAdapter, ApprovalPrompt, TurnInput } from '../agents/adapter';
+import {
+  CODEX_TEAM_NOTE,
+  IMAGE_DISPLAY_NOTE,
+  globalRulesForCodex,
+  joinInstructions,
+  projectRulesForClaude,
+} from '../orchestrator/instructions';
+import { decideRoute, routingInstructions } from '../orchestrator/routing';
+import type { SettingsService } from '../orchestrator/settings-service';
 import type { Store } from '../storage/store';
 import type { UsageService } from '../usage/usage-service';
 
 type PendingApproval = { request: ApprovalRequest; resolve: (decision: ApprovalDecision) => void };
 
+/** Checkpoints and timeline of a project (implemented by Timeline). */
+export interface TurnContext {
+  begin(project: Project): Promise<string>;
+  crossSummary(project: Project, agent: AgentId, beforeRef: string, includeOutside?: boolean): Promise<string | null>;
+  finish(
+    project: Project,
+    turn: { chatId: string; agent: AgentId; prompt: string; result: string; beforeRef: string },
+  ): Promise<{ id: string; files: string[] }>;
+  undo(project: Project, timelineId: string): Promise<string[]>;
+}
+
+/** What one agent reported during a turn. */
+type TurnState = { tools: Map<string, StoredEntry>; lastMessage: string; status: string; images: string[] };
+
 const DEFAULT_TITLE = 'Novo chat';
 
-/** Runs turns: persists what the agents report and forwards it to the window. */
+function newState(): TurnState {
+  return { tools: new Map(), lastMessage: '', status: 'completed', images: [] };
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** Runs turns: routes, keeps the timeline, persists what the agents report and forwards it to the window. */
 export class ChatService {
   private readonly running = new Set<string>();
   private readonly approvals = new Map<string, PendingApproval>();
+  /** One turn at a time per project folder; later turns wait their turn. */
+  private readonly locks = new Map<string, Promise<void>>();
 
   constructor(
     private readonly store: Store,
     private readonly adapters: Record<AgentId, AgentAdapter>,
     private readonly usage: UsageService,
+    private readonly settings: SettingsService,
+    private readonly context: TurnContext,
     private readonly emit: (event: UiEvent) => void,
   ) {}
 
@@ -44,12 +79,17 @@ export class ChatService {
 
     this.running.add(chatId);
     this.emit({ type: 'turnState', chatId, running: true });
-    void this.runTurn(chatId, chat.agent, project.path, text, attachments);
+    const previous = this.locks.get(project.id);
+    if (previous) this.addEntry(chatId, { kind: 'notice', text: 'Outra conversa está trabalhando nesta pasta. Esta mensagem roda quando ela terminar.' });
+    const turn = (previous ?? Promise.resolve()).then(() => this.runTurn(chatId, text, attachments));
+    this.locks.set(project.id, turn);
+    void turn.finally(() => {
+      if (this.locks.get(project.id) === turn) this.locks.delete(project.id);
+    });
   }
 
   async interrupt(chatId: string): Promise<void> {
-    const chat = this.store.getChat(chatId);
-    if (chat) await this.adapters[chat.agent].interrupt(chatId);
+    await Promise.all(Object.values(this.adapters).map((adapter) => adapter.interrupt(chatId)));
   }
 
   resolveApproval(id: string, decision: ApprovalDecision): void {
@@ -60,40 +100,135 @@ export class ChatService {
     this.emit({ type: 'approvalResolved', id });
   }
 
-  private async runTurn(chatId: string, agent: AgentId, cwd: string, text: string, attachments: Attachment[]): Promise<void> {
+  async undoTurn(entryId: string): Promise<void> {
+    const entry = this.store.getEntry(entryId);
+    if (entry?.kind !== 'turnEnd' || !entry.timelineId) throw new Error('Este turno não pode ser desfeito.');
+    const project = this.store.getProject(this.store.getChat(entry.chatId)!.projectId)!;
+    if (this.locks.has(project.id)) throw new Error('Espere a IA terminar antes de desfazer.');
+    const restored = await this.context.undo(project, entry.timelineId);
+    const updated: StoredEntry = { ...entry, undone: true };
+    this.store.updateEntry(updated);
+    this.emit({ type: 'entryUpdated', entry: updated });
+    this.addEntry(entry.chatId, {
+      kind: 'notice',
+      text: restored.length ? `Turno desfeito. Arquivos restaurados: ${restored.join(', ')}` : 'Turno desfeito. Nenhum arquivo precisou ser restaurado.',
+    });
+  }
+
+  private async runTurn(chatId: string, text: string, attachments: Attachment[]): Promise<void> {
     const chat = this.store.getChat(chatId)!;
-    const tools = new Map<string, StoredEntry>();
-    const isClaude = agent === 'claude';
+    const project = this.store.getProject(chat.projectId)!;
+    const settings = this.settings.get();
+    const route = decideRoute(chat.agent, text, this.usage.list(), settings);
+    const state = newState();
+    let beforeRef: string | null = null;
 
     try {
-      await this.adapters[agent].sendTurn(
+      if (route.notice) this.addEntry(chatId, { kind: 'notice', text: route.notice });
+      beforeRef = await this.context.begin(project);
+      const summary = await this.context.crossSummary(project, route.agent, beforeRef);
+      const instructions =
+        route.agent === 'claude'
+          ? joinInstructions(
+              projectRulesForClaude(project.path),
+              route.delegate ? routingInstructions(settings.routingRules) : null,
+              IMAGE_DISPLAY_NOTE,
+            )
+          : joinInstructions(globalRulesForCodex(), CODEX_TEAM_NOTE, IMAGE_DISPLAY_NOTE);
+      await this.adapters[route.agent].sendTurn(
         {
+          ...this.agentSettings(chat, route.agent),
           chatId,
-          cwd,
-          text,
+          cwd: project.path,
+          text: summary ? `${summary}\n\n${text}` : text,
           attachments,
-          sessionId: isClaude ? chat.claudeSessionId : chat.codexThreadId,
-          model: isClaude ? chat.claudeModel : chat.codexModel,
-          effort: isClaude ? chat.claudeEffort : chat.codexEffort,
-          permission: chat.permissionLevel,
+          instructions,
+          delegate: route.delegate
+            ? (task, expected) => this.delegateToCodex(chatId, project, route.codexBlocked, task, expected)
+            : undefined,
         },
         {
-          emit: (event) => this.handle(chatId, agent, event, tools),
-          approve: (prompt) => this.askApproval(chatId, agent, prompt),
+          emit: (event) => this.handle(chatId, route.agent, event, state),
+          approve: (prompt) => this.askApproval(chatId, route.agent, prompt),
         },
       );
     } catch (error) {
-      this.addEntry(chatId, { kind: 'error', agent, message: error instanceof Error ? error.message : String(error) });
+      state.status = 'failed';
+      this.addEntry(chatId, { kind: 'error', agent: route.agent, message: error instanceof Error ? error.message : String(error) });
     } finally {
       for (const [id, pending] of this.approvals) {
         if (pending.request.chatId === chatId) this.resolveApproval(id, 'deny');
       }
+      await this.closeTurn(chatId, project, route.agent, text, state, beforeRef);
       this.running.delete(chatId);
       this.emit({ type: 'turnState', chatId, running: false });
     }
   }
 
-  private handle(chatId: string, agent: AgentId, event: AdapterEvent, tools: Map<string, StoredEntry>): void {
+  private async closeTurn(chatId: string, project: Project, agent: AgentId, prompt: string, state: TurnState, beforeRef: string | null) {
+    let timeline: { id: string; files: string[] } | null = null;
+    if (beforeRef) {
+      try {
+        timeline = await this.context.finish(project, { chatId, agent, prompt, result: state.lastMessage, beforeRef });
+      } catch (error) {
+        this.addEntry(chatId, { kind: 'error', agent, message: `Não consegui registrar o checkpoint: ${error instanceof Error ? error.message : String(error)}` });
+      }
+    }
+    this.addEntry(chatId, { kind: 'turnEnd', agent, status: state.status, files: timeline?.files, timelineId: timeline?.id });
+  }
+
+  /** Runs a Codex turn inside a Claude turn; its progress shows in the same chat. */
+  private async delegateToCodex(chatId: string, project: Project, blocked: boolean, task: string, expected: string): Promise<string> {
+    if (blocked) {
+      this.addEntry(chatId, { kind: 'notice', text: 'O Codex passou do limite de uso configurado; o Claude fará esta parte.' });
+      return 'Codex indisponível: passou do limite de uso configurado pelo usuário. Faça esta parte você mesmo.';
+    }
+    const chat = this.store.getChat(chatId)!;
+    const state = newState();
+    try {
+      const beforeRef = await this.context.begin(project);
+      // Claude's own work in this turn is not done yet, so it must not show up as an outside change.
+      const summary = await this.context.crossSummary(project, 'codex', beforeRef, false);
+      const brief = `[Tarefa delegada pelo Claude]\n${task}\n\nResultado esperado: ${expected}`;
+      await this.adapters.codex.sendTurn(
+        {
+          ...this.agentSettings(chat, 'codex'),
+          chatId,
+          cwd: project.path,
+          text: summary ? `${summary}\n\n${brief}` : brief,
+          attachments: [],
+          instructions: joinInstructions(globalRulesForCodex(), CODEX_TEAM_NOTE, IMAGE_DISPLAY_NOTE),
+        },
+        {
+          emit: (event) => this.handle(chatId, 'codex', event, state),
+          approve: (prompt) => this.askApproval(chatId, 'codex', prompt),
+        },
+      );
+      const timeline = await this.context.finish(project, { chatId, agent: 'codex', prompt: task, result: state.lastMessage, beforeRef });
+      return [
+        `Codex terminou (${state.status}).`,
+        `Resposta do Codex: ${state.lastMessage || '(sem texto)'}`,
+        `Arquivos alterados: ${timeline.files.join(', ') || 'nenhum'}`,
+        state.images.length ? `Imagens geradas: ${state.images.join(', ')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    } catch (error) {
+      return `O Codex falhou: ${error instanceof Error ? error.message : String(error)}. Faça esta parte você mesmo ou explique o problema ao usuário.`;
+    }
+  }
+
+  private agentSettings(chat: Chat, agent: AgentId): Pick<TurnInput, 'sessionId' | 'model' | 'effort' | 'permission'> {
+    const isClaude = agent === 'claude';
+    return {
+      sessionId: isClaude ? chat.claudeSessionId : chat.codexThreadId,
+      model: isClaude ? chat.claudeModel : chat.codexModel,
+      effort: isClaude ? chat.claudeEffort : chat.codexEffort,
+      permission: chat.permissionLevel,
+    };
+  }
+
+  private handle(chatId: string, agent: AgentId, event: AdapterEvent, state: TurnState): void {
     switch (event.type) {
       case 'session': {
         const field = agent === 'claude' ? { claudeSessionId: event.sessionId } : { codexThreadId: event.sessionId };
@@ -104,19 +239,20 @@ export class ChatService {
         this.emit({ type: 'textDelta', chatId, agent, text: event.text });
         break;
       case 'message':
+        state.lastMessage = event.text;
         this.addEntry(chatId, { kind: 'assistant', agent, text: event.text });
         break;
       case 'toolStarted':
-        tools.set(
+        state.tools.set(
           event.toolId,
           this.addEntry(chatId, { kind: 'tool', agent, toolId: event.toolId, name: event.name, detail: event.detail, status: 'running' }),
         );
         break;
       case 'toolCompleted': {
-        const entry = tools.get(event.toolId);
+        const entry = state.tools.get(event.toolId);
         if (entry?.kind !== 'tool') break;
         const updated: StoredEntry = { ...entry, status: event.status, output: event.output };
-        tools.set(event.toolId, updated);
+        state.tools.set(event.toolId, updated);
         this.store.updateEntry(updated);
         this.emit({ type: 'entryUpdated', entry: updated });
         break;
@@ -125,16 +261,17 @@ export class ChatService {
         this.addEntry(chatId, { kind: 'fileChange', agent, paths: event.paths, diff: event.diff });
         break;
       case 'image':
+        state.images.push(event.path);
         this.addEntry(chatId, { kind: 'image', agent, path: event.path, prompt: event.prompt });
         break;
       case 'usage':
         this.usage.update(agent, event.usage);
         break;
       case 'error':
-        this.addEntry(chatId, { kind: 'error', agent, message: event.message });
+        this.addEntry(chatId, { kind: 'error', agent, message: clip(event.message, 2000) });
         break;
       case 'turnCompleted':
-        this.addEntry(chatId, { kind: 'turnEnd', agent, status: event.status });
+        state.status = event.status;
         break;
     }
   }

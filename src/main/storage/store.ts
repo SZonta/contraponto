@@ -38,7 +38,53 @@ const MIGRATIONS: string[] = [
      key TEXT PRIMARY KEY,
      value TEXT NOT NULL
    );`,
+  `CREATE TABLE timeline (
+     seq INTEGER PRIMARY KEY AUTOINCREMENT,
+     id TEXT NOT NULL UNIQUE,
+     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+     chat_id TEXT,
+     agent TEXT NOT NULL,
+     prompt TEXT NOT NULL,
+     result TEXT NOT NULL,
+     files TEXT NOT NULL,
+     before_ref TEXT NOT NULL,
+     after_ref TEXT NOT NULL,
+     undone INTEGER NOT NULL DEFAULT 0,
+     created_at INTEGER NOT NULL
+   );
+   CREATE INDEX timeline_by_project ON timeline(project_id, seq);`,
 ];
+
+/** One agent turn in a project: what was asked, what came back, which files changed. */
+export type TimelineEntry = {
+  id: string;
+  projectId: string;
+  chatId: string | null;
+  agent: string;
+  prompt: string;
+  result: string;
+  files: string[];
+  beforeRef: string;
+  afterRef: string;
+  undone: boolean;
+  createdAt: number;
+};
+
+function toTimeline(row: any): TimelineEntry {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    chatId: row.chat_id,
+    agent: row.agent,
+    prompt: row.prompt,
+    result: row.result,
+    files: JSON.parse(row.files),
+    beforeRef: row.before_ref,
+    afterRef: row.after_ref,
+    undone: Boolean(row.undone),
+    createdAt: row.created_at,
+  };
+}
 
 type ChatRow = {
   id: string;
@@ -186,6 +232,47 @@ export class Store {
   updateEntry(stored: StoredEntry): void {
     const { id, chatId: _chatId, createdAt: _createdAt, ...entry } = stored;
     this.db.prepare('UPDATE entries SET payload = ? WHERE id = ?').run(JSON.stringify(entry), id);
+  }
+
+  getEntry(id: string): StoredEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM entries WHERE id = ?').get(id) as any;
+    return row && { ...JSON.parse(row.payload), id: row.id, chatId: row.chat_id, createdAt: row.created_at };
+  }
+
+  addTimeline(entry: Omit<TimelineEntry, 'id' | 'undone' | 'createdAt'>): TimelineEntry {
+    const stored: TimelineEntry = { ...entry, id: randomUUID(), undone: false, createdAt: Date.now() };
+    this.db
+      .prepare(
+        `INSERT INTO timeline (id, project_id, chat_id, agent, prompt, result, files, before_ref, after_ref, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        stored.id,
+        stored.projectId,
+        stored.chatId,
+        stored.agent,
+        stored.prompt,
+        stored.result,
+        JSON.stringify(stored.files),
+        stored.beforeRef,
+        stored.afterRef,
+        stored.createdAt,
+      );
+    return stored;
+  }
+
+  /** Oldest first. */
+  listTimeline(projectId: string): TimelineEntry[] {
+    return (this.db.prepare('SELECT * FROM timeline WHERE project_id = ? ORDER BY seq').all(projectId) as any[]).map(toTimeline);
+  }
+
+  getTimeline(id: string): TimelineEntry | undefined {
+    const row = this.db.prepare('SELECT * FROM timeline WHERE id = ?').get(id);
+    return row ? toTimeline(row) : undefined;
+  }
+
+  markTimelineUndone(id: string): void {
+    this.db.prepare('UPDATE timeline SET undone = 1 WHERE id = ?').run(id);
   }
 
   getSetting<T>(key: string): T | undefined {

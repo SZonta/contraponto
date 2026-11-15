@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import type { useAppState } from '../useAppState';
-import { AGENT_LABELS } from '../lib';
+import { MODE_COLORS, MODE_LABELS } from '../lib';
+import { SettingsModal } from './SettingsModal';
 
 type Props = { state: ReturnType<typeof useAppState> };
 
 export function Sidebar({ state }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const saveTitle = (chatId: string) => {
     const title = draft.trim();
@@ -62,8 +64,8 @@ export function Sidebar({ state }: Props) {
             ) : (
               <button onClick={() => state.setChatId(chat.id)} className="min-w-0 flex-1 text-left" title={chat.title}>
                 <span className="block truncate">{chat.title}</span>
-                <span className={`text-xs ${chat.agent === 'claude' ? 'text-claude' : 'text-codex'}`}>
-                  {AGENT_LABELS[chat.agent]}
+                <span className={`text-xs ${MODE_COLORS[chat.agent]}`}>
+                  {MODE_LABELS[chat.agent]}
                   {state.running.has(chat.id) ? ' · respondendo…' : ''}
                 </span>
               </button>
@@ -92,6 +94,13 @@ export function Sidebar({ state }: Props) {
           </div>
         ))}
       </div>
+      <button
+        onClick={() => setSettingsOpen(true)}
+        className="border-t border-line px-4 py-2.5 text-left text-sm text-muted hover:bg-raised/60 hover:text-text"
+      >
+        ⚙ Configurações
+      </button>
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </aside>
   );
 }

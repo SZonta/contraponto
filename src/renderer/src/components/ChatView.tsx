@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentId, ApprovalRequest, Chat, StoredEntry } from '@shared/types';
-import { AGENT_LABELS, api, localImageUrl } from '../lib';
+import { AGENT_LABELS, MODE_COLORS, api, imageSource, localImageUrl } from '../lib';
 
 const AGENT_COLOR: Record<AgentId, string> = { claude: 'text-claude', codex: 'text-codex' };
 
@@ -23,7 +23,29 @@ function Collapsible({ summary, children }: { summary: React.ReactNode; children
   );
 }
 
-function EntryView({ entry }: { entry: StoredEntry }) {
+/** Agent text as markdown; images cited by local path are shown through cp-file. */
+function Answer({ text, projectPath }: { text: string; projectPath: string }) {
+  return (
+    <div className="markdown">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={(url, key) => (key === 'src' ? imageSource(url, projectPath) : defaultUrlTransform(url))}
+        components={{
+          img: ({ src, alt }) => (
+            <span className="my-2 block">
+              <img src={src as string} alt={alt ?? ''} className="max-h-96 rounded border border-line" />
+              {alt && <span className="mt-1 block text-xs text-muted">{alt}</span>}
+            </span>
+          ),
+        }}
+      >
+        {text}
+      </Markdown>
+    </div>
+  );
+}
+
+function EntryView({ entry, latest, projectPath }: { entry: StoredEntry; latest: boolean; projectPath: string }) {
   switch (entry.kind) {
     case 'user':
       return (
@@ -48,9 +70,7 @@ function EntryView({ entry }: { entry: StoredEntry }) {
       return (
         <div>
           <AgentName agent={entry.agent} />
-          <div className="markdown">
-            <Markdown remarkPlugins={[remarkGfm]}>{entry.text}</Markdown>
-          </div>
+          <Answer text={entry.text} projectPath={projectPath} />
         </div>
       );
     case 'tool': {
@@ -96,9 +116,43 @@ function EntryView({ entry }: { entry: StoredEntry }) {
           <span className="font-semibold">{AGENT_LABELS[entry.agent]}:</span> {entry.message}
         </div>
       );
+    case 'notice':
+      return <div className="rounded border border-line bg-panel/60 px-3 py-1.5 text-xs text-muted">{entry.text}</div>;
     case 'turnEnd':
-      return entry.status === 'interrupted' ? <div className="text-center text-xs text-muted">— interrompido —</div> : null;
+      return <TurnEnd entry={entry} latest={latest} />;
   }
+}
+
+function TurnEnd({ entry, latest }: { entry: Extract<StoredEntry, { kind: 'turnEnd' }>; latest: boolean }) {
+  const [error, setError] = useState<string | null>(null);
+  const files = entry.files ?? [];
+  if (!files.length && entry.status !== 'interrupted') return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2 text-xs text-muted">
+      {entry.status === 'interrupted' && <span>Interrompido.</span>}
+      {files.length > 0 && (
+        <span title={files.join('\n')}>
+          {files.length === 1 ? '1 arquivo alterado neste turno' : `${files.length} arquivos alterados neste turno`}
+        </span>
+      )}
+      {entry.undone ? (
+        <span className="text-amber-300">desfeito</span>
+      ) : (
+        // Only the most recent turn can be undone.
+        latest &&
+        files.length > 0 &&
+        entry.timelineId && (
+          <button
+            onClick={() => api.undoTurn(entry.id).catch((reason) => setError(reason instanceof Error ? reason.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(reason)))}
+            className="rounded border border-line px-2 py-0.5 hover:text-text"
+          >
+            Desfazer turno
+          </button>
+        )
+      )}
+      {error && <span className="text-red-400">{error}</span>}
+    </div>
+  );
 }
 
 function ApprovalCard({ request }: { request: ApprovalRequest }) {
@@ -129,10 +183,12 @@ type Props = {
   live: { agent: AgentId; text: string } | undefined;
   running: boolean;
   approvals: ApprovalRequest[];
+  projectPath: string;
 };
 
-export function ChatView({ chat, entries, live, running, approvals }: Props) {
+export function ChatView({ chat, entries, live, running, approvals, projectPath }: Props) {
   const bottom = useRef<HTMLDivElement>(null);
+  const lastTurnEndId = entries?.filter((entry) => entry.kind === 'turnEnd').at(-1)?.id;
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
   }, [entries?.length, live?.text, approvals.length]);
@@ -142,23 +198,27 @@ export function ChatView({ chat, entries, live, running, approvals }: Props) {
       <div className="mx-auto flex max-w-3xl flex-col gap-3 px-5 py-5">
         {entries?.length === 0 && !running && (
           <div className="py-16 text-center text-muted">
-            Escreva a primeira mensagem para o {AGENT_LABELS[chat.agent]}.
+            {chat.agent === 'auto'
+              ? 'Modo Automático: o Claude lidera e passa ao Codex as partes criativas.'
+              : `Escreva a primeira mensagem para o ${AGENT_LABELS[chat.agent]}.`}
           </div>
         )}
-        {entries?.map((entry) => <EntryView key={entry.id} entry={entry} />)}
+        {entries?.map((entry) => (
+          <EntryView key={entry.id} entry={entry} latest={entry.id === lastTurnEndId} projectPath={projectPath} />
+        ))}
         {live && (
           <div>
             <AgentName agent={live.agent} />
-            <div className="markdown">
-              <Markdown remarkPlugins={[remarkGfm]}>{live.text}</Markdown>
-            </div>
+            <Answer text={live.text} projectPath={projectPath} />
           </div>
         )}
         {approvals.map((request) => (
           <ApprovalCard key={request.id} request={request} />
         ))}
         {running && !live && approvals.length === 0 && (
-          <div className={`animate-pulse text-xs ${AGENT_COLOR[chat.agent]}`}>{AGENT_LABELS[chat.agent]} está trabalhando…</div>
+          <div className={`animate-pulse text-xs ${MODE_COLORS[chat.agent]}`}>
+            {chat.agent === 'auto' ? 'Trabalhando…' : `${AGENT_LABELS[chat.agent]} está trabalhando…`}
+          </div>
         )}
         <div ref={bottom} />
       </div>

@@ -1,13 +1,14 @@
-import type { AgentId } from '@shared/types';
+import type { AgentId, AgentMode } from '@shared/types';
 
 export const api = window.contraponto;
 
 export const AGENT_LABELS: Record<AgentId, string> = { claude: 'Claude', codex: 'Codex' };
 
-/** URL served by the cp-file protocol in the main process (images only). */
-export function localImageUrl(file: string): string {
-  return `cp-file:///${file.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')}`;
-}
+export const MODE_LABELS: Record<AgentMode, string> = { ...AGENT_LABELS, auto: 'Automático' };
+
+export const MODE_COLORS: Record<AgentMode, string> = { claude: 'text-claude', codex: 'text-codex', auto: 'text-amber-300' };
+
+export { imageSource, localImageUrl } from '@shared/image-source';
 
 export function formatReset(resetsAt: number | null, now = Date.now()): string {
   if (!resetsAt) return '';

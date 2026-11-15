@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { AgentId, Attachment, Chat, ChatSettings, ModelOption, PermissionLevel } from '@shared/types';
+import type { AgentId, AgentMode, Attachment, Chat, ChatSettings, ModelOption, PermissionLevel } from '@shared/types';
 import { AGENT_LABELS, api } from '../lib';
 
 const PERMISSIONS: { value: PermissionLevel; label: string }[] = [
@@ -33,7 +33,8 @@ export function Composer({ chat, models, running, onChange }: Props) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const agent = chat.agent;
+  // In automatic mode the model and effort pickers set Claude, the leader.
+  const agent: AgentId = chat.agent === 'codex' ? 'codex' : 'claude';
   const modelKey = agent === 'claude' ? 'claudeModel' : 'codexModel';
   const effortKey = agent === 'claude' ? 'claudeEffort' : 'codexEffort';
   const modelList = models[agent];
@@ -106,7 +107,7 @@ export function Composer({ chat, models, running, onChange }: Props) {
             }
           }}
           rows={3}
-          placeholder={`Mensagem para o ${AGENT_LABELS[agent]} (Enter envia, Shift+Enter quebra linha)`}
+          placeholder={`${chat.agent === 'auto' ? 'Mensagem (o Claude lidera)' : `Mensagem para o ${AGENT_LABELS[agent]}`}. Enter envia, Shift+Enter quebra linha, @Claude ou @Codex escolhe quem responde.`}
           className="w-full resize-none rounded-lg border border-line bg-panel px-3 py-2 outline-none focus:border-muted"
         />
         {error && <div className="mt-1 text-xs text-red-400">{error}</div>}
@@ -118,11 +119,12 @@ export function Composer({ chat, models, running, onChange }: Props) {
           >
             📎 Anexar
           </button>
-          <Select title="Agente" value={agent} onChange={(value) => onChange({ agent: value as AgentId })}>
+          <Select title="Agente" value={chat.agent} onChange={(value) => onChange({ agent: value as AgentMode })}>
             <option value="claude">Claude</option>
             <option value="codex">Codex</option>
+            <option value="auto">Automático</option>
           </Select>
-          <Select title="Modelo" value={model ?? ''} onChange={(value) => onChange({ [modelKey]: value || null, [effortKey]: null })}>
+          <Select title={chat.agent === 'auto' ? 'Modelo do Claude (líder)' : 'Modelo'} value={model ?? ''} onChange={(value) => onChange({ [modelKey]: value || null, [effortKey]: null })}>
             <option value="">Modelo padrão</option>
             {modelList?.map((option) => (
               <option key={option.id} value={option.id}>

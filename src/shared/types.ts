@@ -1,5 +1,8 @@
 export type AgentId = 'claude' | 'codex';
 
+/** What the chat selector picks: one agent, or Claude leading and delegating to Codex. */
+export type AgentMode = AgentId | 'auto';
+
 /** ask = every action needs approval; acceptEdits = file edits run freely; full = nothing asks. */
 export type PermissionLevel = 'ask' | 'acceptEdits' | 'full';
 
@@ -9,7 +12,7 @@ export type Chat = {
   id: string;
   projectId: string;
   title: string;
-  agent: AgentId;
+  agent: AgentMode;
   claudeSessionId: string | null;
   codexThreadId: string | null;
   claudeModel: string | null;
@@ -35,7 +38,16 @@ export type ChatEntry =
   | { kind: 'fileChange'; agent: AgentId; paths: string[]; diff?: string }
   | { kind: 'image'; agent: AgentId; path: string; prompt?: string }
   | { kind: 'error'; agent: AgentId; message: string }
-  | { kind: 'turnEnd'; agent: AgentId; status: string; durationMs?: number };
+  | { kind: 'notice'; text: string }
+  | {
+      kind: 'turnEnd';
+      agent: AgentId;
+      status: string;
+      /** Files changed during the turn, from the checkpoint diff; set for turns that can be undone. */
+      files?: string[];
+      timelineId?: string;
+      undone?: boolean;
+    };
 
 export type StoredEntry = ChatEntry & { id: string; chatId: string; createdAt: number };
 
@@ -51,6 +63,15 @@ export type ApprovalKind = 'command' | 'file' | 'tool';
 export type ApprovalRequest = { id: string; chatId: string; agent: AgentId; kind: ApprovalKind; title: string; detail: string };
 
 export type ApprovalDecision = 'allow' | 'allowSession' | 'deny';
+
+/** One row of the "who does what" table used by the automatic mode. */
+export type RoutingRule = { taskType: string; agent: AgentId };
+
+export type AppSettings = {
+  routingRules: RoutingRule[];
+  /** In automatic mode, hand work to the other agent when one passes `threshold` percent of a window. */
+  quotaSwitch: { enabled: boolean; threshold: number };
+};
 
 /** Events the main process pushes to the renderer. */
 export type UiEvent =
@@ -82,5 +103,9 @@ export interface ContrapontoApi {
   runningChats(): Promise<string[]>;
   listModels(agent: AgentId): Promise<ModelOption[]>;
   getUsage(): Promise<AgentUsage[]>;
+  getSettings(): Promise<AppSettings>;
+  updateSettings(settings: AppSettings): Promise<AppSettings>;
+  /** Restores the files changed by the turn that ended with this entry. */
+  undoTurn(entryId: string): Promise<void>;
   onEvent(listener: (event: UiEvent) => void): () => void;
 }

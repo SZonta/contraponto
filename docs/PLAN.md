@@ -170,7 +170,9 @@ Verificado no app rodando, via DevTools: turno completo com Claude e com Codex (
 6. Barras de uso com contagem regressiva → verificar: os valores batem com o `/status` do Codex e o `/usage` do Claude.
 7. Retomar sessões → verificar: fechar o app, reabrir e continuar a conversa com o contexto.
 
-### Fase 2 — As duas juntas (~8h)
+### Fase 2 — As duas juntas (~8h) ✅ concluída em 2026-11-15
+Verificado no app: no Automático, o Claude escreveu `notas.txt` e delegou a textura ao Codex, que gerou e salvou `assets/madeira.png`; o Codex, sem ler arquivos, resumiu o que o Claude fez; desfazer restaurou o último turno e recusou um turno antigo. Fila por pasta, troca por cota e @menções cobertas por testes (37 no total). Mudança em relação ao item 3: a memória é compartilhada **sem criar arquivos no projeto**. O Codex lê o `CLAUDE.md` pela opção `project_doc_fallback_filenames`; o Claude recebe o `AGENTS.md` nas instruções quando o projeto só tem esse; as regras globais (`~/.claude/CLAUDE.md`) vão para o Codex como instruções de desenvolvedor, só dentro do Contraponto.
+
 1. Linha do tempo → verificar: cada turno gera uma entrada com arquivos e resumo.
 2. Resumo cruzado → verificar: o Codex cita o que o Claude fez sem você explicar, e vice-versa.
 3. Memória: `AGENTS.md` canônico, `CLAUDE.md` com `@AGENTS.md`, regras globais copiadas para `~/.codex/AGENTS.md` → verificar: as duas IAs respondem em português seguindo suas regras.
@@ -216,6 +218,10 @@ Verificado no app rodando, via DevTools: turno completo com Claude e com Codex (
 - Formato de exportação 3D do fita-sem-etiqueta (Fase 3). Pelo histórico do GitHub, o jogo usa Godot 4.7.2 (.NET, C#) e cenários em glTF.
 - Versionar ou não o `AGENTS.md` e o `CLAUDE.md` no repositório do jogo (Fase 3). Se o jogo já versiona o `CLAUDE.md`, versionar os dois; se não, deixar os dois fora via `.git/info/exclude`.
 - Limiar da troca por cota (padrão proposto: 90%).
+
+### Funcionalidades pedidas para depois
+- **Visualizador de imagens:** clicar numa imagem do chat abre em tela cheia, com zoom e arrastar para ver detalhes (pedido em 2026-11-15).
+- **Modelo e esforço do Codex no Automático:** hoje, no modo Automático, o composer só escolhe o modelo e o esforço do Claude (o líder). Mostrar também os do Codex, usados quando o Claude delega (pedido em 2026-11-15).
 
 ---
 

@@ -28,6 +28,7 @@ export function App() {
               live={state.live}
               running={state.running.has(chat.id)}
               approvals={state.approvals}
+              projectPath={project?.path ?? ''}
             />
             <Composer
               chat={chat}

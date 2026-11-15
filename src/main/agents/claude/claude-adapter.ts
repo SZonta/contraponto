@@ -1,6 +1,15 @@
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
-import { query, type Query, type SDKUserMessage, type PermissionMode, type EffortLevel } from '@anthropic-ai/claude-agent-sdk';
+import {
+  createSdkMcpServer,
+  query,
+  tool,
+  type EffortLevel,
+  type PermissionMode,
+  type Query,
+  type SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
 import type { AgentUsage, ApprovalDecision, ModelOption, PermissionLevel } from '@shared/types';
 import { AsyncQueue } from '../async-queue';
 import type { AdapterEvent, AgentAdapter, ApprovalPrompt, TurnInput, TurnSink } from '../adapter';
@@ -41,7 +50,9 @@ function userMessage(input: TurnInput): SDKUserMessage {
   return { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, origin: { kind: 'human' } } as SDKUserMessage;
 }
 
-type ActiveTurn = { sink: TurnSink; resolve: () => void };
+type ActiveTurn = { sink: TurnSink; resolve: () => void; delegate?: TurnInput['delegate'] };
+
+const DELEGATE_TOOL = 'mcp__contraponto__delegate_to_codex';
 
 /**
  * One long-lived Claude Code process per chat, fed through streaming input,
@@ -68,8 +79,11 @@ class ClaudeSession {
         resume: input.sessionId ?? undefined,
         includePartialMessages: true,
         settingSources: ['user', 'project', 'local'],
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
+        systemPrompt: { type: 'preset', preset: 'claude_code', append: input.instructions },
+        mcpServers: input.delegate ? { contraponto: this.delegateServer() } : undefined,
         canUseTool: async (toolName, toolInput, { suggestions }) => {
+          // Delegating needs no card: what Codex does asks for its own approvals.
+          if (toolName === DELEGATE_TOOL) return { behavior: 'allow', updatedInput: toolInput };
           const decision = this.active
             ? await this.active.sink.approve(approvalPrompt(toolName, toolInput))
             : ('deny' as ApprovalDecision);
@@ -87,9 +101,28 @@ class ClaudeSession {
 
   send(input: TurnInput, sink: TurnSink): Promise<void> {
     return new Promise((resolve) => {
-      this.active = { sink, resolve };
+      this.active = { sink, resolve, delegate: input.delegate };
       this.queue.push(userMessage(input));
     });
+  }
+
+  /** In-process MCP server exposing delegate_to_codex; it calls the delegate of the turn in progress. */
+  private delegateServer() {
+    const delegateTool = tool(
+      'delegate_to_codex',
+      'Delegate a self-contained subtask to Codex, the other AI agent working in the same folder (3D models in Blender, images, textures, visual design). Returns the final answer of Codex and the files it changed.',
+      {
+        task: z.string().describe('Complete, self-contained brief: context, files involved and where to save the result'),
+        expected_output: z.string().describe('What Codex must deliver'),
+      },
+      async ({ task, expected_output }) => {
+        const delegate = this.active?.delegate;
+        const text = delegate ? await delegate(task, expected_output) : 'Codex indisponível neste turno.';
+        return { content: [{ type: 'text', text }] };
+      },
+      { alwaysLoad: true },
+    );
+    return createSdkMcpServer({ name: 'contraponto', version: '0.1.0', tools: [delegateTool] });
   }
 
   interrupt(): Promise<unknown> {
@@ -135,7 +168,7 @@ export class ClaudeAdapter implements AgentAdapter {
 
   async sendTurn(input: TurnInput, sink: TurnSink): Promise<void> {
     // Changing folder, model, effort or permission restarts the process and resumes the same session.
-    const configKey = [input.cwd, input.model, input.effort, input.permission].join('|');
+    const configKey = [input.cwd, input.model, input.effort, input.permission, Boolean(input.delegate), input.instructions ?? ''].join('|');
     let session = this.sessions.get(input.chatId);
     if (session && (session.closed || session.configKey !== configKey)) {
       session.close();

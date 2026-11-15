@@ -25,6 +25,9 @@ const api: ContrapontoApi = {
   runningChats: invoke('runningChats') as ContrapontoApi['runningChats'],
   listModels: invoke('listModels') as ContrapontoApi['listModels'],
   getUsage: invoke('getUsage') as ContrapontoApi['getUsage'],
+  getSettings: invoke('getSettings') as ContrapontoApi['getSettings'],
+  updateSettings: invoke('updateSettings') as ContrapontoApi['updateSettings'],
+  undoTurn: invoke('undoTurn') as ContrapontoApi['undoTurn'],
   onEvent: (listener) => {
     const handler = (_event: unknown, payload: UiEvent) => listener(payload);
     ipcRenderer.on('cp:event', handler);

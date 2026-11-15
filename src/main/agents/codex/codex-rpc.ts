@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -9,19 +10,34 @@ type Pending = { resolve: (value: any) => void; reject: (error: Error) => void }
 export type RpcNotification = { method: string; params?: any };
 export type RpcServerRequest = { id: RequestId; method: string; params?: any };
 
+const VENDOR_BINARY = path.join('vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
+
+/** The pinned @openai/codex dependency of the app, like the Agent SDK brings its own Claude Code. */
+function projectCandidates(): string[] {
+  try {
+    const packageDir = path.dirname(createRequire(import.meta.url).resolve('@openai/codex/package.json'));
+    return [
+      path.join(packageDir, 'node_modules', '@openai', 'codex-win32-x64', VENDOR_BINARY),
+      path.join(packageDir, '..', 'codex-win32-x64', VENDOR_BINARY),
+    ];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Native binary from the global npm install of @openai/codex. Running it directly
- * avoids codex.js, which cannot be started through Electron's own Node.
+ * Native codex.exe. Running it directly avoids codex.js, which cannot be started through
+ * Electron's own Node. The global npm install is only a fallback.
  */
 export function findCodexBinary(): string {
-  const npmModules = path.join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@openai');
-  const vendor = path.join('vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe');
+  const globalModules = path.join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@openai');
   const candidates = [
-    path.join(npmModules, 'codex', 'node_modules', '@openai', 'codex-win32-x64', vendor),
-    path.join(npmModules, 'codex-win32-x64', vendor),
+    ...projectCandidates(),
+    path.join(globalModules, 'codex', 'node_modules', '@openai', 'codex-win32-x64', VENDOR_BINARY),
+    path.join(globalModules, 'codex-win32-x64', VENDOR_BINARY),
   ];
   const found = candidates.find((candidate) => existsSync(candidate));
-  if (!found) throw new Error('Codex CLI não encontrado. Instale com: npm install -g @openai/codex');
+  if (!found) throw new Error(`Codex CLI não encontrado. Procurei em:\n${candidates.join('\n')}`);
   return found;
 }
 

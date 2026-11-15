@@ -31,6 +31,10 @@ export type TurnInput = {
   model: string | null;
   effort: string | null;
   permission: PermissionLevel;
+  /** Extra standing instructions (Claude: appended system prompt; Codex: developer instructions). */
+  instructions?: string;
+  /** When set, Claude gets the delegate_to_codex tool, which calls this. */
+  delegate?: (task: string, expectedOutput: string) => Promise<string>;
 };
 
 export type ApprovalPrompt = { kind: ApprovalKind; title: string; detail: string };

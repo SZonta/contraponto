@@ -107,6 +107,9 @@ export class CodexAdapter implements AgentAdapter {
       model: input.model,
       approvalPolicy: APPROVAL_POLICIES[input.permission],
       sandbox: SANDBOX_MODES[input.permission],
+      developerInstructions: input.instructions ?? null,
+      // Projects that only have CLAUDE.md share it with Codex without creating files.
+      config: { project_doc_fallback_filenames: ['CLAUDE.md'] },
     };
     if (!input.sessionId) {
       const started = await rpc.request('thread/start', settings);

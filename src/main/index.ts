@@ -1,12 +1,14 @@
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron';
-import type { AgentId, AgentUsage, ApprovalDecision, Attachment, ChatSettings, UiEvent } from '@shared/types';
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
+import type { AgentId, AgentUsage, AppSettings, ApprovalDecision, Attachment, ChatSettings, UiEvent } from '@shared/types';
 import { ClaudeAdapter } from './agents/claude/claude-adapter';
 import { CodexAdapter } from './agents/codex/codex-adapter';
 import { AttachmentStore } from './attachments';
 import { ChatService } from './chat/chat-service';
 import { stripHostAgentEnv } from './env';
+import { SettingsService } from './orchestrator/settings-service';
+import { Timeline } from './timeline/timeline';
 import { Store } from './storage/store';
 import { UsageService } from './usage/usage-service';
 
@@ -40,6 +42,18 @@ function createWindow(): void {
   });
   if (process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   else void window.loadFile(path.join(here, '../renderer/index.html'));
+  // Links in answers open in the user's browser; the window itself never navigates away.
+  const openExternally = (url: string) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+  };
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternally(url);
+    return { action: 'deny' };
+  });
+  window.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault();
+    openExternally(url);
+  });
   window.on('closed', () => {
     window = null;
   });
@@ -56,7 +70,9 @@ app.whenReady().then(() => {
   const codex = new CodexAdapter();
   codex.onUsage = (report) => usage.update('codex', report);
   const adapters: Record<AgentId, ClaudeAdapter | CodexAdapter> = { claude, codex };
-  const chats = new ChatService(store, adapters, usage, emit);
+  const settings = new SettingsService(store);
+  const timeline = new Timeline(store, path.join(dataFolder, 'shadow'));
+  const chats = new ChatService(store, adapters, usage, settings, timeline, emit);
 
   protocol.handle('cp-file', (request) => {
     const file = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '');
@@ -104,6 +120,9 @@ app.whenReady().then(() => {
   handle('runningChats', () => chats.runningChats());
   handle('listModels', (agent: AgentId) => adapters[agent].listModels());
   handle('getUsage', () => usage.list());
+  handle('getSettings', () => settings.get());
+  handle('updateSettings', (next: AppSettings) => settings.update(next));
+  handle('undoTurn', (entryId: string) => chats.undoTurn(entryId));
 
   createWindow();
 
