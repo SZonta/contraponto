@@ -6,7 +6,7 @@ export const AGENT_LABELS: Record<AgentId, string> = { claude: 'Claude', codex: 
 
 export const MODE_LABELS: Record<AgentMode, string> = { ...AGENT_LABELS, auto: 'Automático' };
 
-export const MODE_COLORS: Record<AgentMode, string> = { claude: 'text-claude', codex: 'text-codex', auto: 'text-amber-300' };
+export const MODE_COLORS: Record<AgentMode, string> = { claude: 'text-claude', codex: 'text-codex', auto: 'text-muted' };
 
 export { imageSource, localImageUrl } from '@shared/image-source';
 

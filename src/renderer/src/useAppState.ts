@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentId, AgentUsage, ApprovalRequest, Chat, ModelOption, Project, Schedule, StoredEntry } from '@shared/types';
 import { api } from './lib';
+import { EMPTY_DRAFT, readableError, type Draft, type DraftUpdate } from './ux';
 
 type LiveText = { agent: AgentId; text: string };
 
@@ -11,6 +12,7 @@ export function useAppState() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Record<string, StoredEntry[]>>({});
+  const [entryErrors, setEntryErrors] = useState<Record<string, string | undefined>>({});
   const [live, setLive] = useState<Record<string, LiveText>>({});
   const [running, setRunning] = useState<Set<string>>(new Set());
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
@@ -18,24 +20,39 @@ export function useAppState() {
   const [models, setModels] = useState<Partial<Record<AgentId, ModelOption[]>>>({});
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [modelErrors, setModelErrors] = useState<Partial<Record<AgentId, string>>>({});
   const selectedProject = useRef(projectId);
   selectedProject.current = projectId;
   const requestedChat = useRef<string | null>(null);
 
+  const loadModels = useCallback(async (agent: AgentId) => {
+    setModelErrors((current) => ({ ...current, [agent]: undefined }));
+    setModels((current) => ({ ...current, [agent]: undefined }));
+    try {
+      const list = await api.listModels(agent);
+      setModels((current) => ({ ...current, [agent]: list }));
+    } catch {
+      setModels((current) => ({ ...current, [agent]: [] }));
+      setModelErrors((current) => ({ ...current, [agent]: 'Não foi possível carregar os modelos.' }));
+    }
+  }, []);
+
   useEffect(() => {
+    setLoading(true);
     void api.listProjects().then((list) => {
       setProjects(list);
-      setProjectId((current) => current ?? list[0]?.id ?? null);
-    });
-    void api.getUsage().then(setUsage);
-    void api.listPendingApprovals().then(setApprovals);
-    void api.runningChats().then((ids) => setRunning(new Set(ids)));
-    void api.listSchedules().then(setSchedules);
+      setProjectId((current) => list.some((project) => project.id === current) ? current : list[0]?.id ?? null);
+    }).catch((reason) => setError(readableError(reason))).finally(() => setLoading(false));
+    void api.getUsage().then(setUsage).catch((reason) => setError(readableError(reason)));
+    void api.listPendingApprovals().then(setApprovals).catch((reason) => setError(readableError(reason)));
+    void api.runningChats().then((ids) => setRunning(new Set(ids))).catch((reason) => setError(readableError(reason)));
+    void api.listSchedules().then(setSchedules).catch((reason) => setError(readableError(reason)));
     for (const agent of ['claude', 'codex'] as const) {
-      api
-        .listModels(agent)
-        .then((list) => setModels((current) => ({ ...current, [agent]: list })))
-        .catch(() => setModels((current) => ({ ...current, [agent]: [] })));
+      void loadModels(agent);
     }
 
     return api.onEvent((event) => {
@@ -72,7 +89,7 @@ export function useAppState() {
           }
           break;
         case 'schedulesChanged':
-          void api.listSchedules().then(setSchedules);
+          void api.listSchedules().then(setSchedules).catch((reason) => setError(readableError(reason)));
           break;
         case 'approval':
           setApprovals((current) => [...current, event.request]);
@@ -99,51 +116,69 @@ export function useAppState() {
           break;
       }
     });
-  }, []);
+  }, [revision, loadModels]);
 
   useEffect(() => {
     if (!projectId) {
       setChats([]);
+      setChatId(null);
       return;
     }
+    setChats([]);
+    setChatId(null);
+    let active = true;
     void api.listChats(projectId).then((list) => {
+      if (!active) return;
       setChats(list);
       setChatId(list.find((item) => item.id === requestedChat.current)?.id ?? list[0]?.id ?? null);
       requestedChat.current = null;
-    });
-  }, [projectId]);
+    }).catch((reason) => setError(readableError(reason)));
+    return () => { active = false; };
+  }, [projectId, revision]);
 
   useEffect(() => {
     if (!chatId || entries[chatId]) return;
-    void api.listEntries(chatId).then((list) => setEntries((current) => ({ ...current, [chatId]: list })));
-  }, [chatId, entries]);
+    setEntryErrors((current) => ({ ...current, [chatId]: undefined }));
+    void api.listEntries(chatId).then((list) => setEntries((current) => ({ ...current, [chatId]: list })))
+      .catch((reason) => setEntryErrors((current) => ({ ...current, [chatId]: readableError(reason) })));
+  }, [chatId, entries, revision]);
 
   const addProject = useCallback(async () => {
+    try {
     const project = await api.addProject();
     if (!project) return;
     setProjects(await api.listProjects());
     setProjectId(project.id);
+    setSchedulesOpen(false);
+    } catch (reason) { setError(readableError(reason)); }
   }, []);
 
   const createChat = useCallback(async () => {
     if (!projectId) return;
+    try {
     const chat = await api.createChat(projectId);
     setChats((current) => [chat, ...current]);
     setChatId(chat.id);
+    setSchedulesOpen(false);
+    } catch (reason) { setError(readableError(reason)); }
   }, [projectId]);
 
   const updateChat = useCallback(async (id: string, settings: Parameters<typeof api.updateChat>[1]) => {
+    try {
     const chat = await api.updateChat(id, settings);
     setChats((current) => current.map((item) => (item.id === id ? chat : item)));
+    } catch (reason) { setError(readableError(reason)); }
   }, []);
 
   const deleteChat = useCallback(async (id: string) => {
+    try {
     await api.deleteChat(id);
     setChats((current) => {
       const next = current.filter((chat) => chat.id !== id);
       setChatId((selected) => (selected === id ? (next[0]?.id ?? null) : selected));
       return next;
     });
+    } catch (reason) { throw new Error(readableError(reason)); }
   }, []);
 
   return {
@@ -154,11 +189,34 @@ export function useAppState() {
     chatId,
     setChatId,
     entries: chatId ? entries[chatId] : undefined,
+    entryError: chatId ? entryErrors[chatId] : undefined,
     live: chatId ? live[chatId] : undefined,
     running,
     approvals: approvals.filter((request) => request.chatId === chatId),
+    allApprovals: approvals,
+    openPendingApproval: async () => {
+      const request = approvals.find((item) => item.chatId !== chatId) ?? approvals[0];
+      if (!request) return;
+      try {
+        for (const project of projects) {
+          const list = await api.listChats(project.id);
+          if (!list.some((item) => item.id === request.chatId)) continue;
+          if (project.id !== projectId) requestedChat.current = request.chatId;
+          setProjectId(project.id); setChats(list); setChatId(request.chatId); setSchedulesOpen(false); return;
+        }
+        setError('A conversa deste pedido não está mais disponível.');
+      } catch (reason) { setError(readableError(reason)); }
+    },
     usage,
     models,
+    modelErrors,
+    loadModels,
+    loading,
+    error,
+    clearError: () => setError(null),
+    reload: () => { setError(null); setRevision((current) => current + 1); },
+    drafts,
+    updateDraft: (id: string, draft: DraftUpdate) => setDrafts((current) => ({ ...current, [id]: typeof draft === 'function' ? draft(current[id] ?? EMPTY_DRAFT) : draft })),
     schedules,
     schedulesOpen,
     setSchedulesOpen,

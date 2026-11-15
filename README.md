@@ -12,9 +12,11 @@
 - Programe tarefas por intervalo, cron com fuso ou data única; deixe o app trabalhando na bandeja.
 - Gere previews de modelos com o Blender sem guardar arquivos temporários no projeto.
 
-![Chat com as duas IAs no aplicativo instalado](docs/images/chat.png)
+![Chat do Contraponto após a revisão de UX](docs/images/chat.png)
 
-![Agendamentos no aplicativo instalado](docs/images/schedules.png)
+![Agendamentos após a revisão de UX](docs/images/schedules.png)
+
+Capturas em desenvolvimento, com dados de exemplo e sem histórico pessoal. A [revisão de UX](docs/phase5-ux-report.md) inclui comparações antes/depois e a janela mínima.
 
 ## Pré-requisitos
 
@@ -34,6 +36,8 @@ Gere o instalador conforme a seção abaixo e execute `dist\Contraponto-0.1.0-Se
 2. Crie um chat e escolha agente, modelo, esforço e permissões.
 3. Descreva o pedido. `@Claude` e `@Codex` forçam o agente só naquela mensagem.
 4. Comece em **Perguntar** e acompanhe os cards de aprovação.
+
+Modelos, esforços e permissões ficam em **Opções do turno**. No Automático, há um par de seletores para cada IA. A faixa do chat mostra quem está trabalhando e a próxima ação; **Ver pedido** leva à aprovação pendente. Ao subir no histórico, a leitura permanece no lugar e **Ir para a resposta** volta ao fim.
 
 Fechar a janela mantém o app na bandeja. O menu tem **Abrir** e **Sair**; **Sair** encerra também o agendador. Em **Configurações → Iniciar com o Windows**, habilite a inicialização automática se quiser; essa opção só é oferecida no app instalado e não é ativada por padrão.
 

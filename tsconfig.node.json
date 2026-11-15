@@ -9,5 +9,5 @@
     "types": ["node"],
     "paths": { "@shared/*": ["./src/shared/*"] }
   },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts", "electron.vite.config.ts", "vitest.config.ts"]
+  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts", "src/renderer/src/**/*.test.ts", "electron.vite.config.ts", "vitest.config.ts"]
 }

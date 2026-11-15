@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Dialog } from './Dialog';
 
 export type ViewedImage = { src: string; alt: string };
 
@@ -21,13 +22,17 @@ export function ImageViewer({ image, onClose }: { image: ViewedImage; onClose: (
   };
 
   useEffect(fit, [natural]);
+  useEffect(() => { window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit); });
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
       if (event.key === '+' || event.key === '=') setZoom((value) => Math.min(MAX_ZOOM, value * 1.25));
       if (event.key === '-') setZoom((value) => Math.max(MIN_ZOOM, value / 1.25));
       if (event.key === '0') fit();
+      if (event.key.startsWith('Arrow')) {
+        event.preventDefault();
+        setOffset((value) => ({ x: value.x + (event.key === 'ArrowLeft' ? 32 : event.key === 'ArrowRight' ? -32 : 0), y: value.y + (event.key === 'ArrowUp' ? 32 : event.key === 'ArrowDown' ? -32 : 0) }));
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -44,14 +49,14 @@ export function ImageViewer({ image, onClose }: { image: ViewedImage; onClose: (
   };
 
   return (
-    <div className="fixed inset-0 z-20 flex flex-col bg-black/95" onClick={onClose}>
-      <div className="flex items-center gap-2 px-4 py-2 text-sm" onClick={(event) => event.stopPropagation()}>
-        <span className="min-w-0 flex-1 truncate text-muted">{image.alt}</span>
-        <span className="w-14 text-right text-muted">{Math.round(zoom * 100)}%</span>
-        <button title="Diminuir (-)" onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value / 1.25))} className="rounded bg-raised px-2.5 py-1 hover:bg-line">
+    <Dialog title={image.alt || 'Imagem do chat'} onClose={onClose} fullscreen>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-sm">
+        <span className="min-w-0 flex-1 text-xs text-muted">Arraste para mover · + / − para zoom · setas para mover</span>
+        <span className="w-14 text-right text-muted" aria-live="polite">{Math.round(zoom * 100)}%</span>
+        <button aria-label="Diminuir zoom" title="Diminuir (-)" onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value / 1.25))} className="rounded bg-raised px-2.5 py-1 hover:bg-line">
           −
         </button>
-        <button title="Aumentar (+)" onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value * 1.25))} className="rounded bg-raised px-2.5 py-1 hover:bg-line">
+        <button aria-label="Aumentar zoom" title="Aumentar (+)" onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value * 1.25))} className="rounded bg-raised px-2.5 py-1 hover:bg-line">
           +
         </button>
         <button title="Ajustar à tela (0)" onClick={fit} className="rounded bg-raised px-2.5 py-1 hover:bg-line">
@@ -59,9 +64,6 @@ export function ImageViewer({ image, onClose }: { image: ViewedImage; onClose: (
         </button>
         <button title="Tamanho real" onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }} className="rounded bg-raised px-2.5 py-1 hover:bg-line">
           100%
-        </button>
-        <button title="Fechar (Esc)" onClick={onClose} className="rounded bg-raised px-2.5 py-1 hover:bg-line">
-          ✕
         </button>
       </div>
       <div
@@ -91,6 +93,6 @@ export function ImageViewer({ image, onClose }: { image: ViewedImage; onClose: (
           }}
         />
       </div>
-    </div>
+    </Dialog>
   );
 }

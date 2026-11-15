@@ -200,6 +200,12 @@ Escopo executado conforme o pedido da Fase 4: ícone original, preview Blender c
 3. Agendamento, app na bandeja e "Iniciar com o Windows": cron com fuso, intervalo e execução única, fila por pasta e recuperação; tarefa real executou sem janela.
 4. Instalador `.exe` (electron-builder/NSIS x64) e README com prints reais: instalação em pasta limpa, binários fora do ASAR, CLI de cada IA funcional; costuras de desenvolvimento ausentes do bundle de produção.
 
+### Fase 5 — Revisão de UX ✅ concluída em 2026-11-15
+Auditoria de 24 estados, com capturas antes/depois nas janelas de 1280×820 e 900×600, usando dados de teste isolados.
+Melhoradas identidade da IA ativa, progresso, aprovações, composer, estados vazios/erros, foco de teclado e modais, mantendo a navegação e a identidade visual.
+Verificados 103 testes (64 na linha de base), typecheck e build; turnos reais do Codex, uma delegação com Haiku/low e Desfazer conferidos.
+Sem dependências novas nem alterações na lógica principal; proposta estrutural não aplicada e limites em [phase5-ux-report.md](phase5-ux-report.md).
+
 ---
 
 ## 5. Riscos e plano B
