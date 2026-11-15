@@ -19,6 +19,8 @@ export type AdapterEvent =
   | { type: 'image'; path: string; prompt?: string }
   | { type: 'usage'; usage: Omit<AgentUsage, 'agent'> }
   | { type: 'error'; message: string }
+  /** Full list of work still running in the background (replaces the previous list). */
+  | { type: 'background'; tasks: string[] }
   | { type: 'turnCompleted'; status: string };
 
 export type TurnInput = {

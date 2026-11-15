@@ -3,12 +3,17 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentId, ApprovalRequest, Chat, StoredEntry } from '@shared/types';
 import { AGENT_LABELS, api, imageSource, localImageUrl } from '../lib';
-import { readableError, toolLabel, turnActivity } from '../ux';
+import { formatDuration, groupWork, readableError, toolLabel, turnActivity, workSummary, type WorkEntry } from '../ux';
 import { ImageViewer, type ViewedImage } from './ImageViewer';
 
 const AGENT_COLOR: Record<AgentId, string> = { claude: 'text-claude', codex: 'text-codex' };
 function AgentName({ agent }: { agent: AgentId }) {
   return <div className={`mb-1.5 flex items-center gap-2 text-[13px] font-semibold ${AGENT_COLOR[agent]}`}><span aria-hidden="true">●</span>{AGENT_LABELS[agent]}</div>;
+}
+function Spinner() {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" className="note-pulse inline-block h-4 w-4 shrink-0">
+    {[3, 8, 13, 18].map((x, index) => <rect key={x} x={x} y="5" width="3" height="14" rx="1.5" fill={index % 2 ? 'var(--color-codex)' : 'var(--color-claude)'} />)}
+  </svg>;
 }
 function Collapsible({ summary, children }: { summary: React.ReactNode; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -17,6 +22,39 @@ function Collapsible({ summary, children }: { summary: React.ReactNode; children
       <span aria-hidden="true" className="text-muted">{open ? '▾' : '▸'}</span>{summary}
     </button>
     {open && <div className="border-t border-line px-3 py-3">{children}</div>}
+  </div>;
+}
+function useNow(ticking: boolean): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!ticking) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [ticking]);
+  return now;
+}
+/** A run of tool calls as one line: spinner with the current action while it runs, a summary when done; details on demand. */
+function WorkGroup({ items, endAt, active, projectPath }: { items: WorkEntry[]; endAt: number | null; active: boolean; projectPath: string }) {
+  const [open, setOpen] = useState(false);
+  const now = useNow(active);
+  const current = active ? items.findLast((item) => item.kind === 'tool' && item.status === 'running') : undefined;
+  const agent = (current ?? items.at(-1)!).agent;
+  const elapsed = (active ? now : endAt ?? items.at(-1)!.createdAt) - items[0].createdAt;
+  const summary = workSummary(items);
+  return <div>
+    <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs">
+      {active ? <span className={AGENT_COLOR[agent]}><Spinner /></span> : <span aria-hidden="true" className="w-3.5 shrink-0 text-center text-muted">✓</span>}
+      <span className={`shrink-0 font-semibold ${AGENT_COLOR[agent]}`}>{AGENT_LABELS[agent]}</span>
+      {current?.kind === 'tool'
+        ? <><span className="shrink-0">{toolLabel(current.name)}</span><span className="min-w-0 truncate font-mono text-muted">{current.detail}</span></>
+        : <span className="text-muted">{summary.text}{summary.failed > 0 && <span className="text-red-300"> · {summary.failed} não {summary.failed === 1 ? 'concluída' : 'concluídas'}</span>}</span>}
+      {elapsed >= 1000 && <span className="shrink-0 text-muted">{formatDuration(elapsed)}</span>}
+      <span aria-hidden="true" className="shrink-0 text-muted">{open ? '▾' : '›'}</span>
+    </button>
+    {open && <div className="mt-2 flex flex-col gap-2 border-l border-line pl-3">
+      {items.map((item) => <EntryView key={item.id} entry={item} latest={false} pending={false} projectPath={projectPath} />)}
+    </div>}
   </div>;
 }
 const OpenImage = createContext<(image: ViewedImage) => void>(() => {});
@@ -38,7 +76,7 @@ function Answer({ text, projectPath }: { text: string; projectPath: string }) {
     {text}
   </Markdown></div>;
 }
-function EntryView({ entry, latest, projectPath }: { entry: StoredEntry; latest: boolean; projectPath: string }) {
+function EntryView({ entry, latest, pending, projectPath }: { entry: StoredEntry; latest: boolean; pending: boolean; projectPath: string }) {
   switch (entry.kind) {
     case 'user': return <div className="ml-auto max-w-[88%] rounded-xl bg-raised px-4 py-3">
       <div className="mb-1 text-xs font-semibold text-muted">Você</div><div className="whitespace-pre-wrap break-words leading-relaxed">{entry.text}</div>
@@ -60,16 +98,17 @@ function EntryView({ entry, latest, projectPath }: { entry: StoredEntry; latest:
       <p className="font-semibold">{AGENT_LABELS[entry.agent]} não concluiu esta etapa</p><p className="mt-1 break-words leading-relaxed">{entry.message}</p><p className="mt-2 text-xs">Confira os detalhes e envie uma nova mensagem para continuar.</p>
     </div>;
     case 'notice': return <div className="rounded-lg border border-line bg-panel px-3 py-2 text-xs leading-relaxed text-muted"><span className="mr-2 font-semibold">Aviso</span>{entry.text}</div>;
-    case 'turnEnd': return <TurnEnd entry={entry} latest={latest} />;
+    case 'turnEnd': return <TurnEnd entry={entry} latest={latest} pending={pending} />;
   }
 }
-function TurnEnd({ entry, latest }: { entry: Extract<StoredEntry, { kind: 'turnEnd' }>; latest: boolean }) {
+/** pending: the turn answered, but work it started is still running in the background. */
+function TurnEnd({ entry, latest, pending }: { entry: Extract<StoredEntry, { kind: 'turnEnd' }>; latest: boolean; pending: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [undoing, setUndoing] = useState(false);
   const files = entry.files ?? [];
   const failed = entry.status === 'failed', interrupted = entry.status === 'interrupted';
   return <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3 text-xs text-muted">
-    <span>{entry.undone ? '↶ Turno desfeito' : failed ? 'Turno encerrado com erro' : interrupted ? 'Turno interrompido' : `✓ ${AGENT_LABELS[entry.agent]} terminou`}</span>
+    <span>{entry.undone ? '↶ Turno desfeito' : failed ? 'Turno encerrado com erro' : interrupted ? 'Turno interrompido' : pending ? `${AGENT_LABELS[entry.agent]} respondeu; ainda há trabalho em segundo plano` : `✓ ${AGENT_LABELS[entry.agent]} terminou`}</span>
     {files.length > 0 && <span title={files.join('\n')}>{files.length} {files.length === 1 ? 'arquivo alterado' : 'arquivos alterados'}</span>}
     {!entry.undone && latest && !!files.length && entry.timelineId && <button disabled={undoing} onClick={async () => {
       setUndoing(true); setError(null); try { await api.undoTurn(entry.id); } catch (reason) { setError(readableError(reason)); } finally { setUndoing(false); }
@@ -100,17 +139,22 @@ function ApprovalCard({ request }: { request: ApprovalRequest }) {
   </section>;
 }
 
-type Props = { chat: Chat; entries: StoredEntry[] | undefined; loadError?: string; onReload: () => void; live: { agent: AgentId; text: string } | undefined; running: boolean; approvals: ApprovalRequest[]; projectPath: string };
-export function ChatView({ chat, entries, loadError, onReload, live, running, approvals, projectPath }: Props) {
+type Props = { chat: Chat; entries: StoredEntry[] | undefined; loadError?: string; onReload: () => void; live: { agent: AgentId; text: string } | undefined; running: boolean; background: string[]; approvals: ApprovalRequest[]; projectPath: string };
+export function ChatView({ chat, entries, loadError, onReload, live, running, background, approvals, projectPath }: Props) {
   const bottom = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const [away, setAway] = useState(false);
   const [viewed, setViewed] = useState<ViewedImage | null>(null);
   const lastTurnEndId = entries?.filter((entry) => entry.kind === 'turnEnd').at(-1)?.id;
-  const activity = turnActivity(chat.agent, running, entries, live, approvals);
+  const activity = turnActivity(chat.agent, running, entries, live, approvals, background);
+  const busy = activity.kind === 'working' || activity.kind === 'queued' || activity.kind === 'background';
+  const blocks = groupWork(entries ?? []);
+  const lastBlock = blocks.at(-1);
+  // Only the trailing group of a live turn can be in progress; older "running" tools are leftovers of interrupted turns.
+  const workActive = running && lastBlock?.kind === 'work';
   useEffect(() => { following.current = true; setAway(false); }, [chat.id]);
-  useEffect(() => { if (following.current) bottom.current?.scrollIntoView({ block: 'end' }); }, [entries?.length, live?.text, approvals.length, chat.id]);
+  useEffect(() => { if (following.current) bottom.current?.scrollIntoView({ block: 'end' }); }, [entries?.length, live?.text, approvals.length, background.length, chat.id]);
   const showApproval = () => {
     const card = document.getElementById(`approval-${approvals[0]?.id}`);
     card?.scrollIntoView({ block: 'nearest' }); card?.querySelector('button')?.focus();
@@ -119,7 +163,7 @@ export function ChatView({ chat, entries, loadError, onReload, live, running, ap
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div className={`flex shrink-0 items-center gap-3 border-b px-5 py-2.5 ${activity.kind === 'approval' ? 'border-amber-700 bg-amber-950/20' : 'border-line bg-panel/40'}`}>
         <div className="min-w-0 flex-1" role="status" aria-live="polite" aria-atomic="true">
-          <p className="flex flex-wrap items-center gap-x-2 text-[13px]"><span className={`font-semibold ${activity.kind === 'ready' && chat.agent === 'auto' ? 'text-muted' : AGENT_COLOR[activity.agent]}`}>{activity.kind === 'ready' && chat.agent === 'auto' ? 'Automático' : AGENT_LABELS[activity.agent]}</span><span>{activity.title}</span></p>
+          <p className="flex flex-wrap items-center gap-x-2 text-[13px]">{busy && <span className={AGENT_COLOR[activity.agent]}><Spinner /></span>}<span className={`font-semibold ${activity.kind === 'ready' && chat.agent === 'auto' ? 'text-muted' : AGENT_COLOR[activity.agent]}`}>{activity.kind === 'ready' && chat.agent === 'auto' ? 'Automático' : AGENT_LABELS[activity.agent]}</span><span>{activity.title}</span></p>
           <p className="mt-0.5 text-xs text-muted">{activity.detail}</p>
         </div>
         {!!approvals.length && <button onClick={showApproval} className="secondary-button shrink-0 text-xs">Ver pedido{approvals.length > 1 ? ` (${approvals.length})` : ''}</button>}
@@ -134,8 +178,14 @@ export function ChatView({ chat, entries, loadError, onReload, live, running, ap
             <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-muted">{chat.agent === 'auto' ? 'Descreva o resultado. O Claude organiza o trabalho e delega ao Codex.' : `Peça ao ${AGENT_LABELS[chat.agent]} uma tarefa pequena para começar.`}</p>
             <button onClick={() => document.getElementById('message-input')?.focus()} className="secondary-button mt-4 text-sm">Escrever meu pedido</button>
           </div>}
-          {entries?.map((entry) => <EntryView key={entry.id} entry={entry} latest={entry.id === lastTurnEndId} projectPath={projectPath} />)}
+          {blocks.map((block) => block.kind === 'work'
+            ? <WorkGroup key={block.id} items={block.items} endAt={block.endAt} active={workActive && block === lastBlock} projectPath={projectPath} />
+            : <EntryView key={block.entry.id} entry={block.entry} latest={block.entry.id === lastTurnEndId} pending={block.entry.id === lastTurnEndId && background.length > 0} projectPath={projectPath} />)}
           {live && <div><AgentName agent={live.agent} /><Answer text={live.text} projectPath={projectPath} /></div>}
+          {/* The status bar announces this already; this copy sits where the reader is looking. A running work group shows its own spinner. */}
+          {busy && !(workActive && !live) && <div aria-hidden="true" className="flex items-center gap-2 text-xs text-muted">
+            <span className={AGENT_COLOR[activity.agent]}><Spinner /></span><span>{activity.title}{activity.kind === 'background' ? `: ${activity.detail}` : '…'}</span>
+          </div>}
           {approvals.map((request) => <ApprovalCard key={request.id} request={request} />)}
           <div ref={bottom} />
         </div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ApprovalRequest, ScheduleInput, StoredEntry } from '@shared/types';
-import { effortLabel, mentionOptions, mentionTarget, permissionNotice, readableError, scheduleDraftError, toolLabel, turnActivity } from './ux';
+import { effortLabel, formatDuration, groupWork, mentionOptions, mentionTarget, permissionNotice, readableError, scheduleDraftError, toolLabel, turnActivity, workSummary } from './ux';
 
 function entry(value: Record<string, unknown>): StoredEntry {
   return { id: 'example', chatId: 'chat', createdAt: 1, ...value } as StoredEntry;
@@ -33,6 +33,11 @@ describe('current turn presentation', () => {
   it('distinguishes a folder queue from active work', () => {
     expect(turnActivity('codex', true, [user, entry({ kind: 'notice', text: 'Outra conversa está trabalhando nesta pasta.' })])).toMatchObject({ kind: 'queued' });
   });
+  it('keeps showing work after the turn while background tasks are pending', () => {
+    const ended = [user, entry({ kind: 'turnEnd', agent: 'claude', status: 'success' })];
+    expect(turnActivity('auto', false, ended, undefined, [], ['Render video'])).toMatchObject({ kind: 'background', detail: 'Render video' });
+    expect(turnActivity('auto', false, ended, undefined, [], [])).toMatchObject({ kind: 'ready' });
+  });
   it.each(['failed', 'interrupted'])('keeps the outcome of a %s turn visible', (status) => {
     const activity = turnActivity('auto', false, [entry({ kind: 'turnEnd', agent: 'codex', status })]);
     expect(activity.kind).toBe('idle'); expect(activity.agent).toBe('codex'); expect(activity.title).not.toContain('Pronto');
@@ -40,6 +45,23 @@ describe('current turn presentation', () => {
   it.each([['Comando', 'Executando comando'], ['apply_patch', 'Alterando arquivos'], ['Read', 'Consultando o projeto']])('names the real tool %s in plain language', (name, expected) => {
     expect(toolLabel(name)).toBe(expected);
   });
+});
+
+describe('grouped work', () => {
+  const at = (value: Record<string, unknown>, createdAt: number) => ({ ...entry(value), id: `e${createdAt}`, createdAt });
+  const change = (createdAt: number, path: string) => at({ kind: 'fileChange', agent: 'claude', paths: [path] }, createdAt);
+  it('collapses consecutive tool calls and file changes into one block that ends at the next entry', () => {
+    const blocks = groupWork([user, at(tool('claude', 'done'), 1000), at(tool('claude', 'failed'), 2000), change(3000, 'a.ts'),
+      at({ kind: 'assistant', agent: 'claude', text: 'ok' }, 9000), at(tool('claude'), 10000)]);
+    expect(blocks.map((block) => block.kind)).toEqual(['entry', 'work', 'entry', 'work']);
+    expect(blocks[1]).toMatchObject({ kind: 'work', endAt: 9000 });
+    expect(blocks[1].kind === 'work' && workSummary(blocks[1].items)).toEqual({ text: '2 ações · 1 arquivo alterado', failed: 1 });
+    expect(blocks[3]).toMatchObject({ kind: 'work', endAt: null });
+  });
+  it('counts a file changed twice once', () => {
+    expect(workSummary([change(1, 'a.ts'), change(2, 'a.ts')] as never).text).toBe('1 arquivo alterado');
+  });
+  it.each([[400, '0 s'], [12_000, '12 s'], [113_000, '1 min 53 s']])('formats %i ms as %s', (ms, text) => expect(formatDuration(ms)).toBe(text));
 });
 
 describe('mentions and recoverable errors', () => {

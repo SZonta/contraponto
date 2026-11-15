@@ -67,6 +67,11 @@ class ClaudeSession {
   private readonly query: Query;
   private readonly mapper = new ClaudeEventMapper();
   private active: ActiveTurn | null = null;
+  /** Sink of the latest turn; also gets what Claude does after it ends (background tasks reporting back). */
+  private sink: TurnSink | null = null;
+  private backgroundTasks: string[] = [];
+  /** Claude is answering a background task notification, outside any turn. */
+  private resuming = false;
   closed = false;
 
   constructor(input: TurnInput, configKey: string) {
@@ -89,9 +94,8 @@ class ClaudeSession {
         canUseTool: async (toolName, toolInput, { suggestions }) => {
           // Delegating needs no card: what Codex does asks for its own approvals.
           if (toolName === DELEGATE_TOOL) return { behavior: 'allow', updatedInput: toolInput };
-          const decision = this.active
-            ? await this.active.sink.approve(approvalPrompt(toolName, toolInput))
-            : ('deny' as ApprovalDecision);
+          const sink = this.active?.sink ?? this.sink;
+          const decision = sink ? await sink.approve(approvalPrompt(toolName, toolInput)) : ('deny' as ApprovalDecision);
           if (decision === 'deny') return { behavior: 'deny', message: 'O usuário negou esta ação.' };
           return {
             behavior: 'allow',
@@ -107,6 +111,11 @@ class ClaudeSession {
   send(input: TurnInput, sink: TurnSink): Promise<void> {
     return new Promise((resolve) => {
       this.active = { sink, resolve, delegate: input.delegate };
+      this.sink = sink;
+      if (this.resuming) {
+        this.resuming = false;
+        this.reportBackground();
+      }
       this.queue.push(userMessage(input));
     });
   }
@@ -143,6 +152,7 @@ class ClaudeSession {
   private async pump(): Promise<void> {
     try {
       for await (const message of this.query) {
+        this.trackResume(message);
         for (const event of this.mapper.map(message)) this.dispatch(event);
       }
     } catch (error) {
@@ -150,12 +160,37 @@ class ClaudeSession {
       this.dispatch({ type: 'turnCompleted', status: 'failed' });
     } finally {
       this.closed = true;
+      // The process is gone, and its background tasks with it.
+      this.backgroundTasks = [];
+      this.resuming = false;
+      this.reportBackground();
       this.finishTurn();
     }
   }
 
+  /** When a background task finishes, Claude answers it without a new user message; show that as background work. */
+  private trackResume(message: any): void {
+    if (this.active || message.parent_tool_use_id) return;
+    const resuming = this.resuming
+      ? !(message.type === 'result' || (message.type === 'system' && message.subtype === 'session_state_changed' && message.state === 'idle'))
+      : message.type === 'stream_event' || message.type === 'assistant';
+    if (resuming === this.resuming) return;
+    this.resuming = resuming;
+    this.reportBackground();
+  }
+
+  private reportBackground(): void {
+    const tasks = this.resuming ? [...this.backgroundTasks, 'Claude retomou o trabalho'] : this.backgroundTasks;
+    this.sink?.emit({ type: 'background', tasks });
+  }
+
   private dispatch(event: AdapterEvent): void {
-    this.active?.sink.emit(event);
+    if (event.type === 'background') {
+      this.backgroundTasks = event.tasks;
+      this.reportBackground();
+      return;
+    }
+    (this.active?.sink ?? this.sink)?.emit(event);
     if (event.type === 'turnCompleted') this.finishTurn();
   }
 

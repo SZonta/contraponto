@@ -40,6 +40,7 @@ export function App() {
               onReload={state.reload}
               live={state.live}
               running={state.running.has(chat.id)}
+              background={state.background[chat.id] ?? []}
               approvals={state.approvals}
               projectPath={project?.path ?? ''}
             />

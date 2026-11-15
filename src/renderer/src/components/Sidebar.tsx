@@ -74,7 +74,7 @@ export function Sidebar({ state }: Props) {
                 <span className="block truncate">{chat.title}</span>
                 <span className={`text-xs ${MODE_COLORS[chat.agent]}`}>
                   {MODE_LABELS[chat.agent]}
-                  {state.running.has(chat.id) ? ' · respondendo…' : ''}
+                  {state.running.has(chat.id) ? ' · respondendo…' : state.background[chat.id] ? ' · em segundo plano…' : ''}
                 </span>
                 {state.allApprovals.some((request) => request.chatId === chat.id) && <span className="block text-xs font-semibold text-amber-200">Precisa de você</span>}
               </button>

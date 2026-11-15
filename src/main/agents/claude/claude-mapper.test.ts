@@ -7,6 +7,13 @@ describe('ClaudeEventMapper', () => {
     expect(mapper.map({ type: 'system', subtype: 'init', session_id: 'abc' })).toEqual([{ type: 'session', sessionId: 'abc' }]);
   });
 
+  it('reports background tasks as a full list, leaving out ambient ones', () => {
+    const mapper = new ClaudeEventMapper();
+    const tasks = [{ task_id: 'a', task_type: 'local_bash', description: 'Render video' }, { task_id: 'b', task_type: 'monitor', description: 'Watch', ambient: true }];
+    expect(mapper.map({ type: 'system', subtype: 'background_tasks_changed', tasks })).toEqual([{ type: 'background', tasks: ['Render video'] }]);
+    expect(mapper.map({ type: 'system', subtype: 'background_tasks_changed', tasks: [] })).toEqual([{ type: 'background', tasks: [] }]);
+  });
+
   it('streams text deltas and ignores subagent messages', () => {
     const mapper = new ClaudeEventMapper();
     const delta = { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Oi' } } };

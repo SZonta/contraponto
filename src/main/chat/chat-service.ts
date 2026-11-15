@@ -43,6 +43,8 @@ function clip(text: string, max: number): string {
 /** Runs turns: routes, keeps the timeline, persists what the agents report and forwards it to the window. */
 export class ChatService {
   private readonly running = new Set<string>();
+  /** Work still going on per chat after its turn ended. */
+  private readonly background = new Map<string, string[]>();
   private readonly approvals = new Map<string, PendingApproval>();
   /** One turn at a time per project folder; later turns wait their turn. */
   private readonly locks = new Map<string, Promise<unknown>>();
@@ -59,6 +61,10 @@ export class ChatService {
 
   runningChats(): string[] {
     return [...this.running];
+  }
+
+  backgroundTasks(): Record<string, string[]> {
+    return Object.fromEntries(this.background);
   }
 
   pendingApprovals(): ApprovalRequest[] {
@@ -295,6 +301,11 @@ export class ChatService {
         break;
       case 'turnCompleted':
         state.status = event.status;
+        break;
+      case 'background':
+        if (event.tasks.length) this.background.set(chatId, event.tasks);
+        else this.background.delete(chatId);
+        this.emit({ type: 'background', chatId, tasks: event.tasks });
         break;
     }
   }

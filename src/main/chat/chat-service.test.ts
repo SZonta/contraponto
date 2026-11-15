@@ -234,4 +234,20 @@ describe('ChatService', () => {
     expect(entries.find((entry) => entry.kind === 'error')).toMatchObject({ message: 'CLI não encontrada' });
     expect(entries.at(-1)).toMatchObject({ kind: 'turnEnd', status: 'failed' });
   });
+
+  it('keeps background work visible after the turn ends, until the agent reports it done', async () => {
+    let sink!: TurnSink;
+    const { service, chat, events, turnsEnded } = setup({ claude: async (_input, turnSink) => {
+      sink = turnSink;
+      sink.emit({ type: 'background', tasks: ['Render video'] });
+      sink.emit({ type: 'turnCompleted', status: 'success' });
+    } });
+    service.send(chat.id, 'render', []);
+    await turnsEnded();
+    expect(service.backgroundTasks()).toEqual({ [chat.id]: ['Render video'] });
+    sink.emit({ type: 'background', tasks: [] });
+    expect(service.backgroundTasks()).toEqual({});
+    expect(events.filter((event) => event.type === 'background').map((event) => event.type === 'background' && event.tasks))
+      .toEqual([['Render video'], []]);
+  });
 });

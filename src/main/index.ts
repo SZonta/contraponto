@@ -165,6 +165,7 @@ if (primaryInstance) app.whenReady().then(() => {
   handle('resolveApproval', (id: string, decision: ApprovalDecision) => chats.resolveApproval(id, decision));
   handle('listPendingApprovals', () => chats.pendingApprovals());
   handle('runningChats', () => chats.runningChats());
+  handle('backgroundTasks', () => chats.backgroundTasks());
   handle('listModels', (agent: AgentId) => adapters[agent].listModels());
   handle('getUsage', () => usage.list());
   handle('getSettings', () => settings.get());

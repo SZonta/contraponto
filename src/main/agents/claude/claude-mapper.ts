@@ -39,7 +39,13 @@ export class ClaudeEventMapper {
 
     switch (message.type) {
       case 'system':
-        return message.subtype === 'init' ? [{ type: 'session', sessionId: message.session_id }] : [];
+        if (message.subtype === 'init') return [{ type: 'session', sessionId: message.session_id }];
+        if (message.subtype === 'background_tasks_changed') {
+          // Ambient tasks (watchers, housekeeping) are not activity.
+          const tasks = (message.tasks ?? []).filter((task: any) => !task.ambient);
+          return [{ type: 'background', tasks: tasks.map((task: any) => String(task.description || 'Tarefa em segundo plano')) }];
+        }
+        return [];
 
       case 'stream_event': {
         const event = message.event;

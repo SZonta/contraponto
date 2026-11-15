@@ -23,6 +23,7 @@ const api: ContrapontoApi = {
   resolveApproval: invoke('resolveApproval') as ContrapontoApi['resolveApproval'],
   listPendingApprovals: invoke('listPendingApprovals') as ContrapontoApi['listPendingApprovals'],
   runningChats: invoke('runningChats') as ContrapontoApi['runningChats'],
+  backgroundTasks: invoke('backgroundTasks') as ContrapontoApi['backgroundTasks'],
   listModels: invoke('listModels') as ContrapontoApi['listModels'],
   getUsage: invoke('getUsage') as ContrapontoApi['getUsage'],
   getSettings: invoke('getSettings') as ContrapontoApi['getSettings'],

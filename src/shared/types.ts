@@ -107,6 +107,8 @@ export type UiEvent =
   | { type: 'approval'; request: ApprovalRequest }
   | { type: 'approvalResolved'; id: string }
   | { type: 'turnState'; chatId: string; running: boolean }
+  /** Work still going on after the turn ended (background shells, subagents, the agent resuming on its own); empty when done. */
+  | { type: 'background'; chatId: string; tasks: string[] }
   | { type: 'usage'; usage: AgentUsage }
   | { type: 'schedulesChanged' };
 
@@ -127,6 +129,8 @@ export interface ContrapontoApi {
   resolveApproval(id: string, decision: ApprovalDecision): Promise<void>;
   listPendingApprovals(): Promise<ApprovalRequest[]>;
   runningChats(): Promise<string[]>;
+  /** Background work per chat id, for chats that have any. */
+  backgroundTasks(): Promise<Record<string, string[]>>;
   listModels(agent: AgentId): Promise<ModelOption[]>;
   getUsage(): Promise<AgentUsage[]>;
   getSettings(): Promise<AppSettings>;

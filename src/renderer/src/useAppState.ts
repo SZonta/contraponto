@@ -15,6 +15,7 @@ export function useAppState() {
   const [entryErrors, setEntryErrors] = useState<Record<string, string | undefined>>({});
   const [live, setLive] = useState<Record<string, LiveText>>({});
   const [running, setRunning] = useState<Set<string>>(new Set());
+  const [background, setBackground] = useState<Record<string, string[]>>({});
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [usage, setUsage] = useState<AgentUsage[]>([]);
   const [models, setModels] = useState<Partial<Record<AgentId, ModelOption[]>>>({});
@@ -50,6 +51,7 @@ export function useAppState() {
     void api.getUsage().then(setUsage).catch((reason) => setError(readableError(reason)));
     void api.listPendingApprovals().then(setApprovals).catch((reason) => setError(readableError(reason)));
     void api.runningChats().then((ids) => setRunning(new Set(ids))).catch((reason) => setError(readableError(reason)));
+    void api.backgroundTasks().then(setBackground).catch((reason) => setError(readableError(reason)));
     void api.listSchedules().then(setSchedules).catch((reason) => setError(readableError(reason)));
     for (const agent of ['claude', 'codex'] as const) {
       void loadModels(agent);
@@ -110,6 +112,12 @@ export function useAppState() {
               return rest;
             });
           }
+          break;
+        case 'background':
+          setBackground((current) => {
+            const { [event.chatId]: _old, ...rest } = current;
+            return event.tasks.length ? { ...rest, [event.chatId]: event.tasks } : rest;
+          });
           break;
         case 'usage':
           setUsage((current) => [...current.filter((item) => item.agent !== event.usage.agent), event.usage]);
@@ -192,6 +200,7 @@ export function useAppState() {
     entryError: chatId ? entryErrors[chatId] : undefined,
     live: chatId ? live[chatId] : undefined,
     running,
+    background,
     approvals: approvals.filter((request) => request.chatId === chatId),
     allApprovals: approvals,
     openPendingApproval: async () => {
