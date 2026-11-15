@@ -24,6 +24,7 @@ App desktop para Windows, de uso pessoal (talvez publicado no GitHub), que junta
 | Claude | Claude Agent SDK, usando o login do Claude Code oficial instalado. O app nunca lê, guarda ou repassa credenciais |
 | Codex | `codex app-server` (JSON-RPC via stdio), usando o login do Codex CLI |
 | Interface | Português (pt-BR). Código, nomes de arquivo, branches, comentários e commits em inglês |
+| UX design do Contraponto | Fica com o Codex: propostas de layout, fluxos, visual e ícone saem dele; o Claude implementa e integra (decidido em 2026-11-15) |
 
 **Ambiente verificado em 2026-11-14:** Node 26.13.0, Git 2.56, winget e Blender 5.2.4 (`C:\Tools\Blender\5.2.4\blender-5.2.4-windows-x64\blender.exe`). Claude Code 2.1.318 (WinGet) logado no plano **Pro**; o Agent SDK traz o próprio Claude Code 2.1.325. Codex CLI 0.169.0 logado no ChatGPT **Plus**. O git ainda não tem nome e e-mail globais configurados.
 
@@ -183,7 +184,9 @@ Verificado no app: no Automático, o Claude escreveu `notas.txt` e delegou a tex
 8. Troca por cota com liga/desliga e limiar → verificar: com limite simulado, o Automático avisa e passa o trabalho à outra IA.
 
 ### Fase 3 — Teste no fita-sem-etiqueta → uso oficial (~2h + seu teste)
-1. Identificar a engine, as pastas e as regras do jogo → verificar: o `AGENTS.md` do jogo descreve engine, estrutura e formato de exportação 3D.
+Preparação concluída em 2026-11-15; teste manual das três tarefas e aprovação para uso oficial pendentes. Levantamento, verificações, mensagens exatas e comandos em [phase3-report.md](phase3-report.md). Nenhum arquivo de instruções foi criado no jogo; essa decisão continua com o usuário.
+
+1. Identificar a engine, as pastas e as regras do jogo → verificar: levantamento em `docs/phase3-report.md`, sem criar `AGENTS.md` ou `CLAUDE.md` durante a preparação.
 2. Backup em zip fora da pasta do jogo → verificar: extrair o zip e abrir o jogo.
 3. Cópia de teste em `C:\Projetos\fita-sem-etiqueta-teste` → verificar: o jogo abre a partir da cópia.
 4. Três tarefas reais na cópia: uma só do Claude, uma só do Codex e uma mista no Automático → verificar: a segunda IA cita o que a primeira fez, o jogo abre e "Desfazer turno" funciona.
@@ -215,13 +218,15 @@ Verificado no app: no Automático, o Claude escreveu `notas.txt` e delegou a tex
 
 ## 6. Pendências (decidir quando chegar a hora)
 
-- Formato de exportação 3D do fita-sem-etiqueta (Fase 3). Pelo histórico do GitHub, o jogo usa Godot 4.7.2 (.NET, C#) e cenários em glTF.
-- Versionar ou não o `AGENTS.md` e o `CLAUDE.md` no repositório do jogo (Fase 3). Se o jogo já versiona o `CLAUDE.md`, versionar os dois; se não, deixar os dois fora via `.git/info/exclude`.
+- Formato de exportação 3D confirmado na cópia (Fase 3, 2026-11-15): Godot 4.7.2 .NET/C#, glTF 2.0; `.glb` para objetos/personagem e `.gltf` + `.bin` + PNG para a loja. Levantamento em [phase3-report.md](phase3-report.md).
+- Versionar ou não o `AGENTS.md` e o `CLAUDE.md` no repositório do jogo (Fase 3): decisão do usuário pendente. O jogo já versiona `CLAUDE.md` e `CONTEXT.md`; não possui `AGENTS.md`. Recomendação: `AGENTS.md` canônico e `CLAUDE.md` com referência, ambos versionados durante o desenvolvimento. Nenhum deles foi criado/alterado nesta fase.
 - Limiar da troca por cota (padrão proposto: 90%).
 
 ### Funcionalidades pedidas para depois
-- **Visualizador de imagens:** clicar numa imagem do chat abre em tela cheia, com zoom e arrastar para ver detalhes (pedido em 2026-11-15).
-- **Modelo e esforço do Codex no Automático:** hoje, no modo Automático, o composer só escolhe o modelo e o esforço do Claude (o líder). Mostrar também os do Codex, usados quando o Claude delega (pedido em 2026-11-15).
+- ✅ **Visualizador de imagens:** clicar numa imagem do chat abre em tela cheia, com zoom e arrastar para ver detalhes (pedido e feito em 2026-11-15).
+- **Ícone do app:** definir o ícone do Contraponto (janela, barra de tarefas e instalador). Criação com o Codex, como parte do UX design; precisa estar pronto antes do instalador da Fase 4 (pedido em 2026-11-15).
+- ✅ **Modelo e esforço do Codex no Automático:** no modo Automático, o composer mostra os seletores do Claude e do Codex (pedido e feito em 2026-11-15).
+- ✅ **Subagentes com o modelo e o esforço escolhidos:** os subagentes do Claude recebem o modelo e o esforço do chat (`CLAUDE_CODE_SUBAGENT_MODEL` forçado e `CLAUDE_CODE_EFFORT_LEVEL`); os do Codex já herdam por padrão (pedido e feito em 2026-11-15).
 
 ---
 

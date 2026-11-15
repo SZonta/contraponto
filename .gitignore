@@ -5,6 +5,9 @@ out/
 .env
 .env.*
 
+# Phase 3 evidence lists files of the game, including its private art repository; keep it local
+docs/phase3-evidence/
+
 # Spike artifacts (regenerated from the installed CLIs)
 scripts/spikes/codex-schema/
 scripts/spikes/output/
