@@ -14,6 +14,7 @@ import type { AgentUsage, ApprovalDecision, ModelOption, PermissionLevel } from 
 import { AsyncQueue } from '../async-queue';
 import type { AdapterEvent, AgentAdapter, ApprovalPrompt, TurnInput, TurnSink } from '../adapter';
 import { ClaudeEventMapper, describeClaudeTool } from './claude-mapper';
+import { claudeSubagentEnv } from './subagent-env';
 
 const PERMISSION_MODES: Record<PermissionLevel, PermissionMode> = {
   ask: 'default',
@@ -77,6 +78,7 @@ class ClaudeSession {
         permissionMode: PERMISSION_MODES[input.permission],
         allowDangerouslySkipPermissions: input.permission === 'full',
         resume: input.sessionId ?? undefined,
+        env: { ...process.env, ...claudeSubagentEnv(input.model, input.effort) },
         includePartialMessages: true,
         settingSources: ['user', 'project', 'local'],
         systemPrompt: { type: 'preset', preset: 'claude_code', append: input.instructions },

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentId, ApprovalRequest, Chat, StoredEntry } from '@shared/types';
 import { AGENT_LABELS, MODE_COLORS, api, imageSource, localImageUrl } from '../lib';
+import { ImageViewer, type ViewedImage } from './ImageViewer';
 
 const AGENT_COLOR: Record<AgentId, string> = { claude: 'text-claude', codex: 'text-codex' };
 
@@ -23,6 +24,22 @@ function Collapsible({ summary, children }: { summary: React.ReactNode; children
   );
 }
 
+/** Opens the full-window image viewer; provided by ChatView. */
+const OpenImage = createContext<(image: ViewedImage) => void>(() => {});
+
+function ChatImage({ src, alt, className }: { src: string; alt: string; className: string }) {
+  const open = useContext(OpenImage);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      title="Clique para ampliar"
+      onClick={() => open({ src, alt })}
+      className={`${className} cursor-zoom-in transition hover:brightness-110`}
+    />
+  );
+}
+
 /** Agent text as markdown; images cited by local path are shown through cp-file. */
 function Answer({ text, projectPath }: { text: string; projectPath: string }) {
   return (
@@ -33,7 +50,7 @@ function Answer({ text, projectPath }: { text: string; projectPath: string }) {
         components={{
           img: ({ src, alt }) => (
             <span className="my-2 block">
-              <img src={src as string} alt={alt ?? ''} className="max-h-96 rounded border border-line" />
+              <ChatImage src={src as string} alt={alt ?? ''} className="max-h-96 rounded border border-line" />
               {alt && <span className="mt-1 block text-xs text-muted">{alt}</span>}
             </span>
           ),
@@ -55,7 +72,7 @@ function EntryView({ entry, latest, projectPath }: { entry: StoredEntry; latest:
             <div className="mt-2 flex flex-wrap gap-2">
               {entry.attachments.map((file) =>
                 file.mimeType.startsWith('image/') ? (
-                  <img key={file.path} src={localImageUrl(file.path)} alt={file.name} className="h-20 rounded" />
+                  <ChatImage key={file.path} src={localImageUrl(file.path)} alt={file.name} className="h-20 rounded" />
                 ) : (
                   <span key={file.path} className="rounded bg-panel px-2 py-0.5 text-xs text-muted">
                     📎 {file.name}
@@ -106,7 +123,7 @@ function EntryView({ entry, latest, projectPath }: { entry: StoredEntry; latest:
       return (
         <div>
           <AgentName agent={entry.agent} />
-          <img src={localImageUrl(entry.path)} alt={entry.prompt ?? 'Imagem gerada'} className="max-h-80 rounded border border-line" />
+          <ChatImage src={localImageUrl(entry.path)} alt={entry.prompt ?? 'Imagem gerada'} className="max-h-80 rounded border border-line" />
           {entry.prompt && <div className="mt-1 text-xs text-muted">{entry.prompt}</div>}
         </div>
       );
@@ -188,13 +205,16 @@ type Props = {
 
 export function ChatView({ chat, entries, live, running, approvals, projectPath }: Props) {
   const bottom = useRef<HTMLDivElement>(null);
+  const [viewed, setViewed] = useState<ViewedImage | null>(null);
   const lastTurnEndId = entries?.filter((entry) => entry.kind === 'turnEnd').at(-1)?.id;
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
   }, [entries?.length, live?.text, approvals.length]);
 
   return (
+    <OpenImage.Provider value={setViewed}>
     <div className="flex-1 overflow-y-auto">
+      {viewed && <ImageViewer image={viewed} onClose={() => setViewed(null)} />}
       <div className="mx-auto flex max-w-3xl flex-col gap-3 px-5 py-5">
         {entries?.length === 0 && !running && (
           <div className="py-16 text-center text-muted">
@@ -223,5 +243,6 @@ export function ChatView({ chat, entries, live, running, approvals, projectPath 
         <div ref={bottom} />
       </div>
     </div>
+    </OpenImage.Provider>
   );
 }

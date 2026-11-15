@@ -28,19 +28,44 @@ function Select({ value, onChange, children, title }: { value: string; onChange:
   );
 }
 
+/** Model and effort of one agent; in automatic mode there is one per agent, with its name as a prefix. */
+function ModelPicker({ agent, chat, models, labelled, onChange }: { agent: AgentId; chat: Chat; models: ModelOption[] | undefined; labelled: boolean; onChange: (settings: ChatSettings) => void }) {
+  const modelKey = agent === 'claude' ? 'claudeModel' : 'codexModel';
+  const effortKey = agent === 'claude' ? 'claudeEffort' : 'codexEffort';
+  const model = chat[modelKey];
+  const selected = models?.find((option) => option.id === model) ?? models?.find((option) => option.isDefault);
+  const prefix = labelled ? `${AGENT_LABELS[agent]}: ` : '';
+  return (
+    <span className="flex items-center gap-1">
+      {labelled && <span className={`text-xs font-semibold ${agent === 'claude' ? 'text-claude' : 'text-codex'}`}>{AGENT_LABELS[agent]}</span>}
+      <Select title={`${prefix}modelo`} value={model ?? ''} onChange={(value) => onChange({ [modelKey]: value || null, [effortKey]: null })}>
+        <option value="">Modelo padrão</option>
+        {models?.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </Select>
+      <Select title={`${prefix}esforço`} value={chat[effortKey] ?? ''} onChange={(value) => onChange({ [effortKey]: value || null })}>
+        <option value="">Esforço padrão</option>
+        {(selected?.efforts ?? []).map((effort) => (
+          <option key={effort} value={effort}>
+            {effort}
+          </option>
+        ))}
+      </Select>
+    </span>
+  );
+}
+
 export function Composer({ chat, models, running, onChange }: Props) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // In automatic mode the model and effort pickers set Claude, the leader.
   const agent: AgentId = chat.agent === 'codex' ? 'codex' : 'claude';
-  const modelKey = agent === 'claude' ? 'claudeModel' : 'codexModel';
-  const effortKey = agent === 'claude' ? 'claudeEffort' : 'codexEffort';
-  const modelList = models[agent];
-  const model = chat[modelKey];
-  const selectedModel = modelList?.find((option) => option.id === model) ?? modelList?.find((option) => option.isDefault);
-  const efforts = selectedModel?.efforts ?? [];
+  // Automatic mode uses both agents: Claude leads, Codex runs what is delegated.
+  const pickerAgents: AgentId[] = chat.agent === 'auto' ? ['claude', 'codex'] : [agent];
 
   const send = async () => {
     if (!text.trim() || running) return;
@@ -124,22 +149,16 @@ export function Composer({ chat, models, running, onChange }: Props) {
             <option value="codex">Codex</option>
             <option value="auto">Automático</option>
           </Select>
-          <Select title={chat.agent === 'auto' ? 'Modelo do Claude (líder)' : 'Modelo'} value={model ?? ''} onChange={(value) => onChange({ [modelKey]: value || null, [effortKey]: null })}>
-            <option value="">Modelo padrão</option>
-            {modelList?.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-          <Select title="Esforço" value={chat[effortKey] ?? ''} onChange={(value) => onChange({ [effortKey]: value || null })}>
-            <option value="">Esforço padrão</option>
-            {efforts.map((effort) => (
-              <option key={effort} value={effort}>
-                {effort}
-              </option>
-            ))}
-          </Select>
+          {pickerAgents.map((pickerAgent) => (
+            <ModelPicker
+              key={pickerAgent}
+              agent={pickerAgent}
+              chat={chat}
+              models={models[pickerAgent]}
+              labelled={pickerAgents.length > 1}
+              onChange={onChange}
+            />
+          ))}
           <Select title="Permissão" value={chat.permissionLevel} onChange={(value) => onChange({ permissionLevel: value as PermissionLevel })}>
             {PERMISSIONS.map((permission) => (
               <option key={permission.value} value={permission.value}>
