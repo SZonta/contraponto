@@ -66,9 +66,9 @@ label:has(input[type='checkbox']) { min-height: 32px; cursor: pointer; }
 .image-button { display: block; max-width: 100%; border-radius: 7px; text-align: left; overflow: hidden; }
 .image-button img { max-width: 100%; object-fit: contain; }
 .composer-shell { position: relative; }
-.composer-options > summary { display: flex; align-items: center; gap: 8px; list-style: none; padding: 5px 0; font-size: 12px; color: var(--color-muted); }
-.composer-options > summary::before { content: '▸'; }
-.composer-options[open] > summary::before { content: '▾'; }
+.composer-options-toggle { display: flex; width: 100%; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; color: var(--color-muted); text-align: left; }
+.composer-options-toggle::before { content: '▸'; }
+.composer-options-toggle[aria-expanded='true']::before { content: '▾'; }
 .composer-options-content { max-height: 170px; overflow: auto; border-top: 1px solid var(--color-line); padding: 10px 3px 3px; }
 .markdown { overflow-wrap: anywhere; }
 @media (max-width: 1000px) {

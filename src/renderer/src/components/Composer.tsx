@@ -37,7 +37,10 @@ function ModelPicker({ agent, chat, models, disabled, onChange }: {
 }
 
 export function Composer({ chat, models, running, onChange, draft, onDraft, modelErrors, retryModels }: Props) {
-  const options = useRef<HTMLDetailsElement>(null);
+  // A plain toggle instead of <details>: Chromium crashed when a native select popup closed inside a collapsing <details>.
+  const options = useRef<HTMLDivElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [attaching, setAttaching] = useState(false);
@@ -51,7 +54,7 @@ export function Composer({ chat, models, running, onChange, draft, onDraft, mode
   const blocked = running || sending;
   useEffect(() => {
     const closeOutside = (event: Event) => {
-      if (options.current?.open && !options.current.contains(event.target as Node)) options.current.open = false;
+      if (options.current && !options.current.contains(event.target as Node)) setOptionsOpen(false);
     };
     document.addEventListener('pointerdown', closeOutside);
     document.addEventListener('focusin', closeOutside);
@@ -130,13 +133,13 @@ export function Composer({ chat, models, running, onChange, draft, onDraft, mode
         {running ? <button onClick={() => void api.interrupt(chat.id).catch((reason) => setError(readableError(reason)))} className="rounded border border-red-400 px-4 py-2 text-sm font-semibold text-red-200">Parar</button>
           : <button onClick={() => void send()} disabled={!draft.text.trim() || sending || attaching} className="primary-button disabled:opacity-40" aria-label={`Enviar mensagem${target ? ` para ${AGENT_LABELS[target]}` : ''}`}>{sending ? 'Enviando…' : 'Enviar'}</button>}
       </div>
-      <details ref={options} className="composer-options mt-1" onKeyDown={(event) => {
-        if (event.key === 'Escape' && options.current?.open) {
-          event.preventDefault(); event.stopPropagation(); options.current.open = false; options.current.querySelector('summary')?.focus();
+      <div ref={options} className="composer-options mt-1" onKeyDown={(event) => {
+        if (event.key === 'Escape' && optionsOpen) {
+          event.preventDefault(); event.stopPropagation(); setOptionsOpen(false); toggle.current?.focus();
         }
       }}>
-        <summary>Opções do turno <span className={`ml-auto truncate ${chat.permissionLevel === 'full' ? 'font-semibold text-amber-200' : ''}`}>{chat.permissionLevel === 'full' ? permissionNotice('full') : chat.permissionLevel === 'acceptEdits' ? 'Aceitar edições' : 'Perguntar antes de agir'}</span></summary>
-        <div className="composer-options-content" role="group" aria-label="Modelos, esforço e permissões">
+        <button ref={toggle} type="button" className="composer-options-toggle" aria-expanded={optionsOpen} aria-controls="turn-options" onClick={() => setOptionsOpen((open) => !open)}>Opções do turno <span className={`ml-auto truncate ${chat.permissionLevel === 'full' ? 'font-semibold text-amber-200' : ''}`}>{chat.permissionLevel === 'full' ? permissionNotice('full') : chat.permissionLevel === 'acceptEdits' ? 'Aceitar edições' : 'Perguntar antes de agir'}</span></button>
+        {optionsOpen && <div id="turn-options" className="composer-options-content" role="group" aria-label="Modelos, esforço e permissões">
           <div className={`grid gap-2 ${pickerAgents.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
             {pickerAgents.map((id) => <ModelPicker key={id} agent={id} chat={chat} models={models[id]} disabled={blocked} onChange={onChange} />)}
           </div>
@@ -147,8 +150,8 @@ export function Composer({ chat, models, running, onChange, draft, onDraft, mode
             </select>
           </label>
           {blocked && <p className="mt-2 text-xs text-muted">Espere o turno terminar para mudar as opções.</p>}
-        </div>
-      </details>
+        </div>}
+      </div>
     </div>
   </section>;
 }

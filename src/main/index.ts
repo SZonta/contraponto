@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, powerMonitor, powerSaveBlocker, protocol, shell, Tray } from 'electron';
 import type { AgentId, AgentUsage, AppSettings, ApprovalDecision, Attachment, ChatSettings, ScheduleInput, UiEvent } from '@shared/types';
@@ -69,6 +69,11 @@ function createWindow(): void {
   window.webContents.on('will-navigate', (event, url) => {
     event.preventDefault();
     openExternally(url);
+  });
+  // A crashed renderer leaves a blank window; record why and load the UI again.
+  window.webContents.on('render-process-gone', (_event, details) => {
+    appendFileSync(path.join(app.getPath('userData'), 'renderer-crash.log'), `${new Date().toISOString()} ${details.reason} ${details.exitCode}\n`);
+    if (details.reason !== 'clean-exit') window?.reload();
   });
   window.on('closed', () => {
     window = null;
