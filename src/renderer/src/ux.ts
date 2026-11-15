@@ -5,7 +5,7 @@ export type DraftUpdate = Draft | ((current: Draft) => Draft);
 export const EMPTY_DRAFT: Draft = { text: '', attachments: [] };
 
 export function permissionNotice(level: PermissionLevel): string {
-  return level === 'full' ? 'Sem pedir aprovação' : level === 'acceptEdits' ? 'Edições sem perguntar' : 'Você aprova as ações';
+  return level === 'full' ? 'Sem pedir aprovação' : level === 'acceptEdits' ? 'Pergunta só o que for arriscado' : 'Você aprova as ações';
 }
 
 export function effortLabel(value: string): string {

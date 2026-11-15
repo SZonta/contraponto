@@ -45,7 +45,7 @@ describe('current turn presentation', () => {
 describe('mentions and recoverable errors', () => {
   it.each([['low', 'Baixo'], ['medium', 'Médio'], ['high', 'Alto'], ['xhigh', 'Muito alto'], ['max', 'Máximo'], ['ultra', 'Ultra'], ['future', 'future']])
     ('presents effort %s without changing its protocol value', (value, expected) => expect(effortLabel(value)).toBe(expected));
-  it.each([['ask', 'Você aprova as ações'], ['acceptEdits', 'Edições sem perguntar'], ['full', 'Sem pedir aprovação']] as const)
+  it.each([['ask', 'Você aprova as ações'], ['acceptEdits', 'Pergunta só o que for arriscado'], ['full', 'Sem pedir aprovação']] as const)
     ('describes the actual %s permission level', (level, expected) => expect(permissionNotice(level)).toBe(expected));
   it('previews only an unambiguous agent mention, as the router does', () => {
     expect(mentionTarget('Peça ao @Codex.')).toBe('codex');

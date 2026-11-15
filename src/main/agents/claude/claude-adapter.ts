@@ -19,7 +19,8 @@ import { claudeSubagentEnv } from './subagent-env';
 
 const PERMISSION_MODES: Record<PermissionLevel, PermissionMode> = {
   ask: 'default',
-  acceptEdits: 'acceptEdits',
+  // Claude Code's classifier approves routine commands and edits and only asks about risky ones, like Codex on-request.
+  acceptEdits: 'auto',
   full: 'bypassPermissions',
 };
 

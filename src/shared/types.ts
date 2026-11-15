@@ -3,7 +3,7 @@ export type AgentId = 'claude' | 'codex';
 /** What the chat selector picks: one agent, or Claude leading and delegating to Codex. */
 export type AgentMode = AgentId | 'auto';
 
-/** ask = every action needs approval; acceptEdits = file edits run freely; full = nothing asks. */
+/** ask = every action needs approval; acceptEdits = routine edits and commands run freely, risky ones ask; full = nothing asks. */
 export type PermissionLevel = 'ask' | 'acceptEdits' | 'full';
 
 export type Project = { id: string; path: string; name: string; createdAt: number };
