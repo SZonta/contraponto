@@ -1,0 +1,19 @@
+import type { AgentId } from '@shared/types';
+
+export const api = window.contraponto;
+
+export const AGENT_LABELS: Record<AgentId, string> = { claude: 'Claude', codex: 'Codex' };
+
+/** URL served by the cp-file protocol in the main process (images only). */
+export function localImageUrl(file: string): string {
+  return `cp-file:///${file.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')}`;
+}
+
+export function formatReset(resetsAt: number | null, now = Date.now()): string {
+  if (!resetsAt) return '';
+  const minutes = Math.max(0, Math.round((resetsAt - now) / 60000));
+  if (minutes < 60) return `reseta em ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `reseta em ${hours}h${String(minutes % 60).padStart(2, '0')}`;
+  return `reseta em ${Math.floor(hours / 24)}d ${hours % 24}h`;
+}

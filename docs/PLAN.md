@@ -156,7 +156,12 @@ Objetivo: eliminar os riscos antes de escrever o app. Resultados e decisões em 
 
 Saída: `docs/spikes.md` com resultados e decisões ajustadas.
 
-### Fase 1 — App base (~8h)
+### Fase 1 — App base (~8h) ✅ concluída em 2026-11-15
+Verificado no app rodando, via DevTools: turno completo com Claude e com Codex (streaming, aprovações, arquivo criado), barras de uso das duas IAs, imagem anexada e descrita pelo Claude, e as duas sessões retomadas depois de reiniciar o app. Notas:
+- O Codex é aberto pelo `codex.exe` nativo da instalação npm; o `codex.js` não roda pelo Node do Electron.
+- Abrir o app pelo terminal do painel do Claude Desktop falha no Codex: aquele terminal não enxerga `%APPDATA%\npm`. Fora dele funciona.
+- Os chats agora gravam sessões reais: aparecem no histórico do Claude Code e do app do Codex (pendência da seção 6).
+
 1. Estrutura Electron + React + TypeScript (electron-vite), lint, formatação, Vitest → verificar: `npm run dev` abre a janela e `npm test` passa.
 2. Armazenamento SQLite com migrações → verificar: testes de criar, ler, atualizar e apagar.
 3. `ClaudeAdapter` e `CodexAdapter` emitindo `AgentEvent` → verificar: testes com processos simulados.

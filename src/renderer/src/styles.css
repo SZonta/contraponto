@@ -1,0 +1,81 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-ink: #1c1b19;
+  --color-panel: #24221f;
+  --color-raised: #2e2b27;
+  --color-line: #3a3631;
+  --color-text: #ece7df;
+  --color-muted: #a39c91;
+  --color-claude: #d97757;
+  --color-codex: #6fb59a;
+  --font-sans: 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+/* Markdown answers */
+.markdown p {
+  margin: 0.4rem 0;
+  line-height: 1.55;
+}
+.markdown ul,
+.markdown ol {
+  margin: 0.4rem 0;
+  padding-left: 1.4rem;
+}
+.markdown ul {
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
+.markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-raised);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
+.markdown pre {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  padding: 0.7rem;
+  overflow-x: auto;
+}
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  font-weight: 600;
+  margin: 0.8rem 0 0.3rem;
+}
+.markdown table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--color-line);
+  padding: 0.25rem 0.5rem;
+}
+.markdown a {
+  color: var(--color-claude);
+}
