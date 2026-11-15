@@ -135,7 +135,9 @@ try {
             $hashPath = Join-Path $evidence 'last-successful-task-hashes.json'
             $preserved = Test-Path -LiteralPath $hashPath
             if ($preserved) {
-                foreach ($entry in Get-Content -LiteralPath $hashPath -Raw | ConvertFrom-Json) {
+                # Windows PowerShell 5.1 passes a JSON array as one object inside foreach; assign it first so it unrolls.
+                $entries = Get-Content -LiteralPath $hashPath -Raw | ConvertFrom-Json
+                foreach ($entry in $entries) {
                     $path = Join-Path $game $entry.Path
                     if (-not (Test-Path -LiteralPath $path) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.Sha256) { $preserved = $false }
                 }

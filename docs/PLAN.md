@@ -184,7 +184,7 @@ Verificado no app: no Automático, o Claude escreveu `notas.txt` e delegou a tex
 8. Troca por cota com liga/desliga e limiar → verificar: com limite simulado, o Automático avisa e passa o trabalho à outra IA.
 
 ### Fase 3 — Teste no fita-sem-etiqueta → uso oficial (~2h + seu teste)
-Preparação concluída em 2026-11-15; teste manual das três tarefas e aprovação para uso oficial pendentes. Levantamento, verificações, mensagens exatas e comandos em [phase3-report.md](phase3-report.md). Nenhum arquivo de instruções foi criado no jogo; essa decisão continua com o usuário.
+Testes concluídos em 2026-11-15 no app instalado: A (Claude), B (Codex) e C (Automático) passaram no `phase3-check.ps1`; em C, o Claude chamou `delegate_to_codex`, o Codex gerou a etiqueta e o Claude integrou o C#; "Desfazer turno" removeu os arquivos de C e preservou A e B por hash (`-CheckUndo`). Aprovação para uso oficial pendente. Levantamento, verificações, mensagens exatas e comandos em [phase3-report.md](phase3-report.md). Nenhum arquivo de instruções foi criado no jogo; essa decisão continua com o usuário.
 
 1. Identificar a engine, as pastas e as regras do jogo → verificar: levantamento em `docs/phase3-report.md`, sem criar `AGENTS.md` ou `CLAUDE.md` durante a preparação.
 2. Backup em zip fora da pasta do jogo → verificar: extrair o zip e abrir o jogo.
