@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { AgentId, AgentUsage, ApprovalRequest, Chat, ModelOption, Project, StoredEntry } from '@shared/types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AgentId, AgentUsage, ApprovalRequest, Chat, ModelOption, Project, Schedule, StoredEntry } from '@shared/types';
 import { api } from './lib';
 
 type LiveText = { agent: AgentId; text: string };
@@ -16,6 +16,11 @@ export function useAppState() {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [usage, setUsage] = useState<AgentUsage[]>([]);
   const [models, setModels] = useState<Partial<Record<AgentId, ModelOption[]>>>({});
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const selectedProject = useRef(projectId);
+  selectedProject.current = projectId;
+  const requestedChat = useRef<string | null>(null);
 
   useEffect(() => {
     void api.listProjects().then((list) => {
@@ -25,6 +30,7 @@ export function useAppState() {
     void api.getUsage().then(setUsage);
     void api.listPendingApprovals().then(setApprovals);
     void api.runningChats().then((ids) => setRunning(new Set(ids)));
+    void api.listSchedules().then(setSchedules);
     for (const agent of ['claude', 'codex'] as const) {
       api
         .listModels(agent)
@@ -60,7 +66,13 @@ export function useAppState() {
           });
           break;
         case 'chatUpdated':
-          setChats((current) => current.map((chat) => (chat.id === event.chat.id ? event.chat : chat)));
+          if (event.chat.projectId === selectedProject.current) {
+            setChats((current) => current.some((chat) => chat.id === event.chat.id)
+              ? current.map((chat) => (chat.id === event.chat.id ? event.chat : chat)) : [event.chat, ...current]);
+          }
+          break;
+        case 'schedulesChanged':
+          void api.listSchedules().then(setSchedules);
           break;
         case 'approval':
           setApprovals((current) => [...current, event.request]);
@@ -96,7 +108,8 @@ export function useAppState() {
     }
     void api.listChats(projectId).then((list) => {
       setChats(list);
-      setChatId(list[0]?.id ?? null);
+      setChatId(list.find((item) => item.id === requestedChat.current)?.id ?? list[0]?.id ?? null);
+      requestedChat.current = null;
     });
   }, [projectId]);
 
@@ -146,6 +159,15 @@ export function useAppState() {
     approvals: approvals.filter((request) => request.chatId === chatId),
     usage,
     models,
+    schedules,
+    schedulesOpen,
+    setSchedulesOpen,
+    openChat: (project: string, id: string) => {
+      if (project !== projectId) requestedChat.current = id;
+      setProjectId(project);
+      setChatId(id);
+      setSchedulesOpen(false);
+    },
     addProject,
     createChat,
     updateChat,

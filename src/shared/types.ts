@@ -73,6 +73,31 @@ export type AppSettings = {
   quotaSwitch: { enabled: boolean; threshold: number };
 };
 
+export type ScheduleTrigger =
+  | { kind: 'cron'; expression: string; timezone: string }
+  | { kind: 'interval'; minutes: number }
+  | { kind: 'once'; at: number };
+
+export type ScheduleInput = {
+  name: string;
+  projectId: string;
+  trigger: ScheduleTrigger;
+  prompt: string;
+  continueChat: boolean;
+  chatId: string | null;
+  settings: Required<Pick<ChatSettings, 'agent' | 'claudeModel' | 'claudeEffort' | 'codexModel' | 'codexEffort' | 'permissionLevel'>>;
+};
+
+export type Schedule = ScheduleInput & {
+  id: string;
+  enabled: boolean;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastChatId: string | null;
+  lastStatus: 'idle' | 'running' | 'completed' | 'failed' | 'interrupted';
+  lastError: string | null;
+};
+
 /** Events the main process pushes to the renderer. */
 export type UiEvent =
   | { type: 'textDelta'; chatId: string; agent: AgentId; text: string }
@@ -82,7 +107,8 @@ export type UiEvent =
   | { type: 'approval'; request: ApprovalRequest }
   | { type: 'approvalResolved'; id: string }
   | { type: 'turnState'; chatId: string; running: boolean }
-  | { type: 'usage'; usage: AgentUsage };
+  | { type: 'usage'; usage: AgentUsage }
+  | { type: 'schedulesChanged' };
 
 /** API exposed by the preload script as window.contraponto. */
 export interface ContrapontoApi {
@@ -107,5 +133,11 @@ export interface ContrapontoApi {
   updateSettings(settings: AppSettings): Promise<AppSettings>;
   /** Restores the files changed by the turn that ended with this entry. */
   undoTurn(entryId: string): Promise<void>;
+  listSchedules(): Promise<Schedule[]>;
+  saveSchedule(input: ScheduleInput, id?: string): Promise<Schedule>;
+  pauseSchedule(id: string, paused: boolean): Promise<Schedule>;
+  deleteSchedule(id: string): Promise<void>;
+  getDesktopSettings(): Promise<{ startWithWindows: boolean; packaged: boolean }>;
+  setStartWithWindows(enabled: boolean): Promise<boolean>;
   onEvent(listener: (event: UiEvent) => void): () => void;
 }

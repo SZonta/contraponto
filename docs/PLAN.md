@@ -192,11 +192,13 @@ Preparação concluída em 2026-11-15; teste manual das três tarefas e aprovaç
 4. Três tarefas reais na cópia: uma só do Claude, uma só do Codex e uma mista no Automático → verificar: a segunda IA cita o que a primeira fez, o jogo abre e "Desfazer turno" funciona.
 5. Você aprova → apontar o Contraponto para a pasta oficial do jogo.
 
-### Fase 4 — Criativo e rotina (~8h)
-1. Imagens do Codex no chat: miniatura, abrir e salvar no caminho de assets → verificar: uma textura pedida aparece no chat e na pasta do jogo.
-2. Blender: instruções no `AGENTS.md` e script de preview e exportação → verificar: um modelo criado com 3 ou mais previews e importável na engine.
-3. Agendamento, app na bandeja e "Iniciar com o Windows" → verificar: uma tarefa agendada roda com a janela fechada.
-4. Instalador `.exe` (electron-builder) e README para o GitHub → verificar: instalar numa pasta limpa e abrir.
+### Fase 4 — Criativo e rotina (~8h) ✅ concluída em 2026-11-15
+Escopo executado conforme o pedido da Fase 4: ícone original, preview Blender com instruções enviadas pelo app (sem criar `AGENTS.md` no jogo), agendador/bandeja, instalador NSIS x64 e README. Verificados: 64 testes e typecheck; PNG da fita da cópia em Eevee e dentro do chat; tarefa real de 1 minuto sem janela; CRUD de agendamentos; opção de inicialização ligada/conferida/restaurada; instalação limpa com turnos e gravações reais das duas IAs, contexto cruzado e cotas. Ambiente herdado do Codex Desktop isolado para permitir PowerShell na CLI incluída. Detalhes e limites em [phase4-report.md](phase4-report.md). Instalador sem assinatura; a Fase 3 e a aprovação da pasta oficial continuam pendentes.
+
+1. Imagens no chat: exibição existente verificada com o PNG de preview de 768×768, carregado via `cp-file`; nenhum asset foi criado no jogo.
+2. Blender: `scripts/blender/render_preview.py` e instruções em `src/main/orchestrator/instructions.ts`; `.glb` da cópia e `.blend` sintético renderizados sem alterar as entradas; previews no diretório de dados do app.
+3. Agendamento, app na bandeja e "Iniciar com o Windows": cron com fuso, intervalo e execução única, fila por pasta e recuperação; tarefa real executou sem janela.
+4. Instalador `.exe` (electron-builder/NSIS x64) e README com prints reais: instalação em pasta limpa, binários fora do ASAR, CLI de cada IA funcional; costuras de desenvolvimento ausentes do bundle de produção.
 
 ---
 
@@ -224,7 +226,7 @@ Preparação concluída em 2026-11-15; teste manual das três tarefas e aprovaç
 
 ### Funcionalidades pedidas para depois
 - ✅ **Visualizador de imagens:** clicar numa imagem do chat abre em tela cheia, com zoom e arrastar para ver detalhes (pedido e feito em 2026-11-15).
-- **Ícone do app:** definir o ícone do Contraponto (janela, barra de tarefas e instalador). Criação com o Codex, como parte do UX design; precisa estar pronto antes do instalador da Fase 4 (pedido em 2026-11-15).
+- ✅ **Ícone do app:** SVG original, `build/icon.png` 1024×1024 e ICO com 16/24/32/48/64/128/256 px; aplicado à janela, bandeja e instalador. Dimensões e ícones extraídos dos executáveis conferidos (concluído em 2026-11-15).
 - ✅ **Modelo e esforço do Codex no Automático:** no modo Automático, o composer mostra os seletores do Claude e do Codex (pedido e feito em 2026-11-15).
 - ✅ **Subagentes com o modelo e o esforço escolhidos:** os subagentes do Claude recebem o modelo e o esforço do chat (`CLAUDE_CODE_SUBAGENT_MODEL` forçado e `CLAUDE_CODE_EFFORT_LEVEL`); os do Codex já herdam por padrão (pedido e feito em 2026-11-15).
 

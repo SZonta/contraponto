@@ -28,6 +28,12 @@ const api: ContrapontoApi = {
   getSettings: invoke('getSettings') as ContrapontoApi['getSettings'],
   updateSettings: invoke('updateSettings') as ContrapontoApi['updateSettings'],
   undoTurn: invoke('undoTurn') as ContrapontoApi['undoTurn'],
+  listSchedules: invoke('listSchedules') as ContrapontoApi['listSchedules'],
+  saveSchedule: invoke('saveSchedule') as ContrapontoApi['saveSchedule'],
+  pauseSchedule: invoke('pauseSchedule') as ContrapontoApi['pauseSchedule'],
+  deleteSchedule: invoke('deleteSchedule') as ContrapontoApi['deleteSchedule'],
+  getDesktopSettings: invoke('getDesktopSettings') as ContrapontoApi['getDesktopSettings'],
+  setStartWithWindows: invoke('setStartWithWindows') as ContrapontoApi['setStartWithWindows'],
   onEvent: (listener) => {
     const handler = (_event: unknown, payload: UiEvent) => listener(payload);
     ipcRenderer.on('cp:event', handler);

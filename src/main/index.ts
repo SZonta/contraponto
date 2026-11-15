@@ -1,7 +1,8 @@
 import path from 'node:path';
+import { mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
-import type { AgentId, AgentUsage, AppSettings, ApprovalDecision, Attachment, ChatSettings, UiEvent } from '@shared/types';
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, powerMonitor, powerSaveBlocker, protocol, shell, Tray } from 'electron';
+import type { AgentId, AgentUsage, AppSettings, ApprovalDecision, Attachment, ChatSettings, ScheduleInput, UiEvent } from '@shared/types';
 import { ClaudeAdapter } from './agents/claude/claude-adapter';
 import { CodexAdapter } from './agents/codex/codex-adapter';
 import { AttachmentStore } from './attachments';
@@ -11,11 +12,12 @@ import { SettingsService } from './orchestrator/settings-service';
 import { Timeline } from './timeline/timeline';
 import { Store } from './storage/store';
 import { UsageService } from './usage/usage-service';
+import { Scheduler } from './scheduler/scheduler';
 
 stripHostAgentEnv();
 
 // Development only: lets scripts drive the window through the DevTools protocol.
-if (process.env.CONTRAPONTO_DEBUG_PORT) app.commandLine.appendSwitch('remote-debugging-port', process.env.CONTRAPONTO_DEBUG_PORT);
+if (import.meta.env.DEV && !app.isPackaged && process.env.CONTRAPONTO_DEBUG_PORT) app.commandLine.appendSwitch('remote-debugging-port', process.env.CONTRAPONTO_DEBUG_PORT);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
@@ -24,9 +26,22 @@ const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 protocol.registerSchemesAsPrivileged([{ scheme: 'cp-file', privileges: { secure: true, supportFetchAPI: true, stream: true } }]);
 
 let window: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let quitting = false;
+const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.ico') : path.resolve(here, '../../build/icon.ico');
+
+function showWindow(): void {
+  if (!window) createWindow();
+  if (window!.isMinimized()) window!.restore();
+  window!.show();
+  window!.focus();
+}
 
 function emit(event: UiEvent): void {
   window?.webContents.send('cp:event', event);
+  if (event.type === 'approval' && window && !window.isVisible()) {
+    tray?.displayBalloon({ title: 'Contraponto precisa de aprovação', content: event.request.title });
+  }
 }
 
 function createWindow(): void {
@@ -36,11 +51,12 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     title: 'Contraponto',
+    icon: iconPath,
     backgroundColor: '#1c1b19',
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(here, '../preload/index.cjs'), sandbox: true, contextIsolation: true },
   });
-  if (process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL);
+  if (import.meta.env.DEV && !app.isPackaged && process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   else void window.loadFile(path.join(here, '../renderer/index.html'));
   // Links in answers open in the user's browser; the window itself never navigates away.
   const openExternally = (url: string) => {
@@ -57,13 +73,27 @@ function createWindow(): void {
   window.on('closed', () => {
     window = null;
   });
+  window.on('close', (event) => {
+    if (!quitting) {
+      event.preventDefault();
+      window!.hide();
+    }
+  });
 }
 
-app.whenReady().then(() => {
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
+app.on('second-instance', showWindow);
+app.on('before-quit', () => { quitting = true; });
+// Keep the tray and scheduler alive even if a renderer closes its window.
+app.on('window-all-closed', () => {});
+
+if (primaryInstance) app.whenReady().then(() => {
+  app.setAppUserModelId('dev.szonta.contraponto');
   const dataFolder = app.getPath('userData');
   const store = new Store(path.join(dataFolder, 'contraponto.db'));
   // Development only: registers a folder without the picker, for scripted checks.
-  if (process.env.CONTRAPONTO_SEED_PROJECT) store.addProject(process.env.CONTRAPONTO_SEED_PROJECT);
+  if (import.meta.env.DEV && !app.isPackaged && process.env.CONTRAPONTO_SEED_PROJECT) store.addProject(process.env.CONTRAPONTO_SEED_PROJECT);
   const attachments = new AttachmentStore(path.join(dataFolder, 'attachments'));
   const usage = new UsageService(store, emit);
   const claude = new ClaudeAdapter();
@@ -72,7 +102,19 @@ app.whenReady().then(() => {
   const adapters: Record<AgentId, ClaudeAdapter | CodexAdapter> = { claude, codex };
   const settings = new SettingsService(store);
   const timeline = new Timeline(store, path.join(dataFolder, 'shadow'));
-  const chats = new ChatService(store, adapters, usage, settings, timeline, emit);
+  const previews = path.join(dataFolder, 'previews');
+  mkdirSync(previews, { recursive: true });
+  const previewScript = app.isPackaged ? path.join(process.resourcesPath, 'blender/render_preview.py') : path.resolve(here, '../../scripts/blender/render_preview.py');
+  const chats = new ChatService(store, adapters, usage, settings, timeline, emit, { script: previewScript, directory: previews });
+  const scheduler = new Scheduler(store, async (schedule) => {
+    const chat = schedule.continueChat ? store.getChat(schedule.chatId!) : store.createChat(schedule.projectId, { ...schedule.settings, title: schedule.name });
+    if (!chat || chat.projectId !== schedule.projectId) throw new Error('O chat do agendamento foi apagado. Edite o agendamento.');
+    emit({ type: 'chatUpdated', chat });
+    return { chatId: chat.id, status: await chats.sendAndWait(chat.id, schedule.prompt, schedule.settings) };
+  }, {
+    start: () => powerSaveBlocker.start('prevent-app-suspension'),
+    stop: (id) => { if (powerSaveBlocker.isStarted(id)) powerSaveBlocker.stop(id); },
+  }, () => emit({ type: 'schedulesChanged' }));
 
   protocol.handle('cp-file', (request) => {
     const file = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '');
@@ -123,8 +165,32 @@ app.whenReady().then(() => {
   handle('getSettings', () => settings.get());
   handle('updateSettings', (next: AppSettings) => settings.update(next));
   handle('undoTurn', (entryId: string) => chats.undoTurn(entryId));
+  handle('listSchedules', () => store.listSchedules());
+  handle('saveSchedule', (input: ScheduleInput, id?: string) => scheduler.save(input, id));
+  handle('pauseSchedule', (id: string, paused: boolean) => scheduler.pause(id, paused));
+  handle('deleteSchedule', (id: string) => scheduler.delete(id));
+  handle('getDesktopSettings', () => ({ startWithWindows: app.getLoginItemSettings().openAtLogin, packaged: app.isPackaged }));
+  handle('setStartWithWindows', (enabled: boolean) => {
+    if (!app.isPackaged) throw new Error('Disponível no app instalado.');
+    if (typeof enabled !== 'boolean') throw new Error('Valor inválido.');
+    app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath });
+    return app.getLoginItemSettings().openAtLogin;
+  });
 
+  tray = new Tray(iconPath);
+  tray.setToolTip('Contraponto');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Abrir', click: showWindow },
+    { type: 'separator' },
+    { label: 'Sair', click: () => app.quit() },
+  ]));
+  tray.on('double-click', showWindow);
+  tray.on('balloon-click', showWindow);
   createWindow();
+  scheduler.start();
+  const resume = () => { void scheduler.tick(); };
+  powerMonitor.on('resume', resume);
+  app.on('activate', showWindow);
 
   // Fresh plan usage at startup; neither read spends tokens.
   for (const agent of ['claude', 'codex'] as const) {
@@ -134,10 +200,12 @@ app.whenReady().then(() => {
       .catch((error: unknown) => console.error(`[usage] ${agent}:`, error));
   }
 
-  app.on('window-all-closed', () => {
+  app.on('will-quit', () => {
+    scheduler.stop();
+    powerMonitor.removeListener('resume', resume);
     claude.dispose();
     codex.dispose();
+    tray?.destroy();
     store.close();
-    app.quit();
   });
 });

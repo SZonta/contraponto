@@ -3,6 +3,7 @@ import { Composer } from './components/Composer';
 import { Sidebar } from './components/Sidebar';
 import { UsageBars } from './components/UsageBars';
 import { useAppState } from './useAppState';
+import { SchedulesView } from './components/SchedulesView';
 
 export function App() {
   const state = useAppState();
@@ -15,12 +16,12 @@ export function App() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-4 border-b border-line px-5 py-2.5">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold">{chat?.title ?? 'Contraponto'}</div>
+            <div className="truncate text-sm font-semibold">{state.schedulesOpen ? 'Agendamentos' : chat?.title ?? 'Contraponto'}</div>
             <div className="truncate text-xs text-muted">{project?.path ?? 'Adicione uma pasta para começar'}</div>
           </div>
           <UsageBars usage={state.usage} />
         </header>
-        {chat ? (
+        {state.schedulesOpen ? <SchedulesView state={state} /> : chat ? (
           <>
             <ChatView
               chat={chat}

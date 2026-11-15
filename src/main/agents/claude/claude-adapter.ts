@@ -12,6 +12,7 @@ import {
 import { z } from 'zod';
 import type { AgentUsage, ApprovalDecision, ModelOption, PermissionLevel } from '@shared/types';
 import { AsyncQueue } from '../async-queue';
+import { findClaudeBinary } from '../binary-paths';
 import type { AdapterEvent, AgentAdapter, ApprovalPrompt, TurnInput, TurnSink } from '../adapter';
 import { ClaudeEventMapper, describeClaudeTool } from './claude-mapper';
 import { claudeSubagentEnv } from './subagent-env';
@@ -72,6 +73,7 @@ class ClaudeSession {
     this.query = query({
       prompt: this.queue,
       options: {
+        pathToClaudeCodeExecutable: findClaudeBinary(),
         cwd: input.cwd,
         model: input.model ?? undefined,
         effort: (input.effort as EffortLevel | null) ?? undefined,
@@ -205,7 +207,7 @@ export class ClaudeAdapter implements AgentAdapter {
   private probe(): Promise<{ models: ModelOption[]; usage: Omit<AgentUsage, 'agent'> | null }> {
     this.probeResult ??= (async () => {
       const idle = new AsyncQueue<SDKUserMessage>();
-      const session = query({ prompt: idle, options: { cwd: os.homedir(), persistSession: false } });
+      const session = query({ prompt: idle, options: { cwd: os.homedir(), persistSession: false, pathToClaudeCodeExecutable: findClaudeBinary() } });
       try {
         const models = (await session.supportedModels()).map((model) => ({
           id: model.value,

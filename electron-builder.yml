@@ -1,0 +1,37 @@
+appId: dev.szonta.contraponto
+productName: Contraponto
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - node_modules/@anthropic-ai/**
+  - node_modules/@openai/**
+extraResources:
+  - from: build/icon.ico
+    to: icon.ico
+  - from: build/icon.png
+    to: icon.png
+  - from: scripts/blender/render_preview.py
+    to: blender/render_preview.py
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  executableName: Contraponto
+  artifactName: Contraponto-${version}-Setup-${arch}.${ext}
+  signAndEditExecutable: true
+  signExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  runAfterFinish: false
+npmRebuild: false
+electronDist: node_modules/electron/dist

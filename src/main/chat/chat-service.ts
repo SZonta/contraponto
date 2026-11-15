@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentId, ApprovalDecision, ApprovalRequest, Attachment, Chat, Project, StoredEntry, UiEvent } from '@shared/types';
+import type { AgentId, ApprovalDecision, ApprovalRequest, Attachment, Chat, ChatSettings, Project, StoredEntry, UiEvent } from '@shared/types';
 import type { AdapterEvent, AgentAdapter, ApprovalPrompt, TurnInput } from '../agents/adapter';
 import {
   CODEX_TEAM_NOTE,
   IMAGE_DISPLAY_NOTE,
+  blenderInstructions,
   globalRulesForCodex,
   joinInstructions,
   projectRulesForClaude,
@@ -44,7 +45,7 @@ export class ChatService {
   private readonly running = new Set<string>();
   private readonly approvals = new Map<string, PendingApproval>();
   /** One turn at a time per project folder; later turns wait their turn. */
-  private readonly locks = new Map<string, Promise<void>>();
+  private readonly locks = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly store: Store,
@@ -53,6 +54,7 @@ export class ChatService {
     private readonly settings: SettingsService,
     private readonly context: TurnContext,
     private readonly emit: (event: UiEvent) => void,
+    private readonly preview?: { script: string; directory: string },
   ) {}
 
   runningChats(): string[] {
@@ -65,6 +67,21 @@ export class ChatService {
 
   /** Starts the turn and returns at once; progress arrives as events. */
   send(chatId: string, text: string, attachments: Attachment[]): void {
+    void this.enqueue(chatId, text, attachments).catch((error: unknown) => console.error('[chat]', error));
+  }
+
+  /** Scheduled turns use the same folder queue and settle only after checkpoints finish. */
+  async sendAndWait(chatId: string, text: string, settings: ChatSettings): Promise<string> {
+    while (this.running.has(chatId)) {
+      const chat = this.store.getChat(chatId);
+      const turn = chat && this.locks.get(chat.projectId);
+      if (!turn) throw new Error('O chat em execução não está mais disponível.');
+      await turn.catch(() => {});
+    }
+    return this.enqueue(chatId, text, [], settings);
+  }
+
+  private enqueue(chatId: string, text: string, attachments: Attachment[], settings?: ChatSettings): Promise<string> {
     if (this.running.has(chatId)) throw new Error('Este chat ainda está respondendo.');
     const chat = this.store.getChat(chatId);
     if (!chat) throw new Error('Chat não encontrado.');
@@ -81,11 +98,12 @@ export class ChatService {
     this.emit({ type: 'turnState', chatId, running: true });
     const previous = this.locks.get(project.id);
     if (previous) this.addEntry(chatId, { kind: 'notice', text: 'Outra conversa está trabalhando nesta pasta. Esta mensagem roda quando ela terminar.' });
-    const turn = (previous ?? Promise.resolve()).then(() => this.runTurn(chatId, text, attachments));
+    const turn = (previous ?? Promise.resolve()).catch(() => {}).then(() => this.runTurn(chatId, text, attachments, settings));
     this.locks.set(project.id, turn);
     void turn.finally(() => {
       if (this.locks.get(project.id) === turn) this.locks.delete(project.id);
-    });
+    }).catch(() => {});
+    return turn;
   }
 
   async interrupt(chatId: string): Promise<void> {
@@ -115,8 +133,9 @@ export class ChatService {
     });
   }
 
-  private async runTurn(chatId: string, text: string, attachments: Attachment[]): Promise<void> {
-    const chat = this.store.getChat(chatId)!;
+  private async runTurn(chatId: string, text: string, attachments: Attachment[], settingsOverride?: ChatSettings): Promise<string> {
+    const chat = settingsOverride ? this.store.updateChat(chatId, settingsOverride) : this.store.getChat(chatId)!;
+    if (settingsOverride) this.emit({ type: 'chatUpdated', chat });
     const project = this.store.getProject(chat.projectId)!;
     const settings = this.settings.get();
     const route = decideRoute(chat.agent, text, this.usage.list(), settings);
@@ -133,8 +152,10 @@ export class ChatService {
               projectRulesForClaude(project.path),
               route.delegate ? routingInstructions(settings.routingRules) : null,
               IMAGE_DISPLAY_NOTE,
+              this.preview ? blenderInstructions(this.preview.script, this.preview.directory) : null,
             )
-          : joinInstructions(globalRulesForCodex(), CODEX_TEAM_NOTE, IMAGE_DISPLAY_NOTE);
+          : joinInstructions(globalRulesForCodex(), CODEX_TEAM_NOTE, IMAGE_DISPLAY_NOTE,
+              this.preview ? blenderInstructions(this.preview.script, this.preview.directory) : null);
       await this.adapters[route.agent].sendTurn(
         {
           ...this.agentSettings(chat, route.agent),
@@ -163,6 +184,7 @@ export class ChatService {
       this.running.delete(chatId);
       this.emit({ type: 'turnState', chatId, running: false });
     }
+    return state.status;
   }
 
   private async closeTurn(chatId: string, project: Project, agent: AgentId, prompt: string, state: TurnState, beforeRef: string | null) {
@@ -197,7 +219,8 @@ export class ChatService {
           cwd: project.path,
           text: summary ? `${summary}\n\n${brief}` : brief,
           attachments: [],
-          instructions: joinInstructions(globalRulesForCodex(), CODEX_TEAM_NOTE, IMAGE_DISPLAY_NOTE),
+          instructions: joinInstructions(globalRulesForCodex(), CODEX_TEAM_NOTE, IMAGE_DISPLAY_NOTE,
+            this.preview ? blenderInstructions(this.preview.script, this.preview.directory) : null),
         },
         {
           emit: (event) => this.handle(chatId, 'codex', event, state),

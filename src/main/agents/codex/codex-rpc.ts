@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { unpackedPath } from '../binary-paths';
 
 type RequestId = number | string;
 type Pending = { resolve: (value: any) => void; reject: (error: Error) => void };
@@ -27,15 +28,10 @@ function projectCandidates(): string[] {
 
 /**
  * Native codex.exe. Running it directly avoids codex.js, which cannot be started through
- * Electron's own Node. The global npm install is only a fallback.
+ * Electron's own Node. Only the pinned dependency is used, also after packaging.
  */
 export function findCodexBinary(): string {
-  const globalModules = path.join(process.env.APPDATA ?? '', 'npm', 'node_modules', '@openai');
-  const candidates = [
-    ...projectCandidates(),
-    path.join(globalModules, 'codex', 'node_modules', '@openai', 'codex-win32-x64', VENDOR_BINARY),
-    path.join(globalModules, 'codex-win32-x64', VENDOR_BINARY),
-  ];
+  const candidates = projectCandidates().map(unpackedPath);
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found) throw new Error(`Codex CLI não encontrado. Procurei em:\n${candidates.join('\n')}`);
   return found;

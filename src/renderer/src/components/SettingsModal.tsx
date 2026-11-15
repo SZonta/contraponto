@@ -5,9 +5,12 @@ import { api } from '../lib';
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [newType, setNewType] = useState('');
+  const [desktop, setDesktop] = useState<{ startWithWindows: boolean; packaged: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void api.getSettings().then(setSettings);
+    void api.getDesktopSettings().then(setDesktop).catch((reason) => setError(String(reason)));
   }, []);
 
   if (!settings) return null;
@@ -16,14 +19,25 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setSettings({ ...settings, routingRules: settings.routingRules.map((rule, i) => (i === index ? { ...rule, agent } : rule)) });
 
   const save = async () => {
-    await api.updateSettings(settings);
-    onClose();
+    try {
+      await api.updateSettings(settings);
+      if (desktop?.packaged) await api.setStartWithWindows(desktop.startWithWindows);
+      onClose();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div className="max-h-[85vh] w-[560px] overflow-y-auto rounded-lg border border-line bg-panel p-5" onClick={(event) => event.stopPropagation()}>
         <h2 className="text-base font-semibold">Configurações</h2>
+        <h3 className="mt-5 text-sm font-semibold">Windows e bandeja</h3>
+        <label className="mt-2 flex items-center gap-2">
+          <input type="checkbox" checked={desktop?.startWithWindows ?? false} disabled={!desktop?.packaged}
+            onChange={(event) => desktop && setDesktop({ ...desktop, startWithWindows: event.target.checked })} />
+          Iniciar com o Windows
+        </label>
+        <p className="mt-1 text-xs text-muted">{desktop?.packaged ? 'Ao fechar a janela, o app continua na bandeja. Use Sair para encerrá-lo.' : 'A inicialização automática fica disponível no app instalado. Fechar a janela mantém o app na bandeja.'}</p>
+        {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
 
         <h3 className="mt-5 text-sm font-semibold">Quem faz o quê no modo Automático</h3>
         <p className="mt-1 text-xs text-muted">O Claude lidera e passa ao Codex os tipos de tarefa marcados com Codex. O que não estiver na tabela, o Claude decide.</p>

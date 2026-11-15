@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import type { Chat, ChatEntry, ChatSettings, Project, StoredEntry } from '@shared/types';
+import type { Chat, ChatEntry, ChatSettings, Project, Schedule, StoredEntry } from '@shared/types';
 
 /** Each entry runs once, in order; PRAGMA user_version records how many ran. */
 const MIGRATIONS: string[] = [
@@ -53,6 +53,11 @@ const MIGRATIONS: string[] = [
      created_at INTEGER NOT NULL
    );
    CREATE INDEX timeline_by_project ON timeline(project_id, seq);`,
+  `CREATE TABLE schedules (
+     id TEXT PRIMARY KEY,
+     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+     payload TEXT NOT NULL
+   );`,
 ];
 
 /** One agent turn in a project: what was asked, what came back, which files changed. */
@@ -278,6 +283,21 @@ export class Store {
   getSetting<T>(key: string): T | undefined {
     const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
     return row ? (JSON.parse(row.value) as T) : undefined;
+  }
+
+  listSchedules(): Schedule[] {
+    return (this.db.prepare('SELECT payload FROM schedules ORDER BY rowid').all() as { payload: string }[])
+      .map((row) => JSON.parse(row.payload) as Schedule);
+  }
+
+  saveSchedule(schedule: Schedule): void {
+    this.db.prepare(`INSERT INTO schedules (id, project_id, payload) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, payload = excluded.payload`)
+      .run(schedule.id, schedule.projectId, JSON.stringify(schedule));
+  }
+
+  deleteSchedule(id: string): void {
+    this.db.prepare('DELETE FROM schedules WHERE id = ?').run(id);
   }
 
   setSetting(key: string, value: unknown): void {

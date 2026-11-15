@@ -4,6 +4,7 @@ out/
 *.log
 .env
 .env.*
+.phase4-tests/
 
 # Phase 3 evidence lists files of the game, including its private art repository; keep it local
 docs/phase3-evidence/

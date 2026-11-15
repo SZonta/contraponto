@@ -12,11 +12,15 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "icons": "node scripts/create-icons.mjs",
+    "dist": "npm run icons && npm run build && electron-builder --win nsis --x64",
+    "pack:win": "npm run icons && npm run build && electron-builder --win --x64 --dir"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.325",
+    "@anthropic-ai/claude-agent-sdk": "0.3.325",
     "@openai/codex": "0.169.0",
+    "cron-parser": "^5.10.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
@@ -30,7 +34,9 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "electron": "^45.3.2",
+    "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",

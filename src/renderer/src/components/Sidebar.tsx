@@ -24,7 +24,7 @@ export function Sidebar({ state }: Props) {
           <button
             key={project.id}
             title={project.path}
-            onClick={() => state.setProjectId(project.id)}
+            onClick={() => { state.setProjectId(project.id); state.setSchedulesOpen(false); }}
             className={`truncate rounded px-2 py-1.5 text-left ${project.id === state.projectId ? 'bg-raised' : 'hover:bg-raised/60'}`}
           >
             {project.name}
@@ -62,7 +62,7 @@ export function Sidebar({ state }: Props) {
                 className="min-w-0 flex-1 rounded border border-line bg-ink px-1 outline-none"
               />
             ) : (
-              <button onClick={() => state.setChatId(chat.id)} className="min-w-0 flex-1 text-left" title={chat.title}>
+              <button onClick={() => { state.setChatId(chat.id); state.setSchedulesOpen(false); }} className="min-w-0 flex-1 text-left" title={chat.title}>
                 <span className="block truncate">{chat.title}</span>
                 <span className={`text-xs ${MODE_COLORS[chat.agent]}`}>
                   {MODE_LABELS[chat.agent]}
@@ -94,6 +94,10 @@ export function Sidebar({ state }: Props) {
           </div>
         ))}
       </div>
+      <button onClick={() => state.setSchedulesOpen(true)}
+        className={`border-t border-line px-4 py-3 text-left text-sm hover:bg-raised/60 ${state.schedulesOpen ? 'text-codex bg-raised/50' : 'text-text'}`}>
+        ◷ Agendamentos <span className="ml-2 text-xs text-muted">{state.schedules.filter((item) => item.enabled).length} ativos</span>
+      </button>
       <button
         onClick={() => setSettingsOpen(true)}
         className="border-t border-line px-4 py-2.5 text-left text-sm text-muted hover:bg-raised/60 hover:text-text"

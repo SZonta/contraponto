@@ -34,6 +34,18 @@ export const IMAGE_DISPLAY_NOTE =
   'No chat do Contraponto, você não anexa arquivos, mas pode mostrar imagens ao usuário: escreva na resposta ' +
   '![descrição](caminho), com o caminho absoluto ou relativo à pasta do projeto. O app exibe a imagem dentro do chat.';
 
+export function blenderInstructions(script: string, directory: string): string {
+  return [
+    'Preview 3D no Contraponto:',
+    'Blender: C:\\Tools\\Blender\\5.2.4\\blender-5.2.4-windows-x64\\blender.exe.',
+    `Script de preview: ${script}. Aceita .blend ou .glb; monta câmera/luzes quando faltam e renderiza em Eevee.`,
+    `No PowerShell: & 'C:\\Tools\\Blender\\5.2.4\\blender-5.2.4-windows-x64\\blender.exe' -b --python '${script}' -- '<modelo.blend ou modelo.glb>' '${directory}\\<nome-unico>.png'`,
+    `Guarde previews em ${directory}, no diretório de dados do app, fora do projeto e do Git. Não crie arquivos de instruções no projeto.`,
+    'Para cada iteração visual, renderize, inspecione o PNG e corrija; mostre o resultado na resposta como ![Preview](caminho absoluto).',
+    'O script nunca salva sobre o modelo original. Exporte assets finais na pasta/formato exigidos pelo projeto; para glTF 2.0 use export_scene.gltf do Blender.',
+  ].join('\n');
+}
+
 export function joinInstructions(...parts: (string | null | undefined)[]): string | undefined {
   const text = parts.filter(Boolean).join('\n\n');
   return text || undefined;

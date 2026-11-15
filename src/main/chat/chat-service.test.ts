@@ -59,6 +59,33 @@ function setup(scripts: { claude?: Script; codex?: Script }, summary: string | n
 }
 
 describe('ChatService', () => {
+  it('queues a scheduled continuation behind a manual turn and applies its model at execution time', async () => {
+    let release!: () => void;
+    let first = true;
+    const seen: string[] = [];
+    const { store, service, chat, turnsEnded } = setup({ claude: async (input, sink) => {
+      seen.push(input.model ?? 'default');
+      if (first) { first = false; await new Promise<void>((resolve) => { release = resolve; }); }
+      sink.emit({ type: 'turnCompleted', status: 'completed' });
+    } });
+    service.send(chat.id, 'manual', []);
+    await vi.waitFor(() => expect(seen).toEqual(['default']));
+    const scheduled = service.sendAndWait(chat.id, 'scheduled', { claudeModel: 'sonnet', claudeEffort: 'low' });
+    expect(seen).toEqual(['default']); release();
+    expect(await scheduled).toBe('completed'); await turnsEnded(2);
+    expect(seen).toEqual(['default', 'sonnet']);
+    expect(store.listEntries(chat.id).filter((entry) => entry.kind === 'user').map((entry) => entry.text)).toEqual(['manual', 'scheduled']);
+    store.close();
+  });
+
+  it('returns a scheduled agent failure instead of reporting success', async () => {
+    const { store, service, chat } = setup({ codex: async (_input, sink) => {
+      sink.emit({ type: 'turnCompleted', status: 'failed' });
+    } });
+    expect(await service.sendAndWait(chat.id, 'scheduled', { agent: 'codex' })).toBe('failed');
+    store.close();
+  });
+
   it('persists a turn, remembers the session and records it in the timeline', async () => {
     const { store, service, chat, turnsEnded, finished } = setup({
       claude: async (input, sink) => {
