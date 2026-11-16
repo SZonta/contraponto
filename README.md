@@ -30,14 +30,16 @@ Capturas em desenvolvimento, com dados de exemplo e sem histórico pessoal. A [r
 
 ## Instalar e usar
 
-Gere o instalador conforme a seção abaixo e execute `dist\Contraponto-0.1.0-Setup-x64.exe`. A instalação é por usuário e permite escolher a pasta. O pacote atual **não tem assinatura digital**.
+Gere o instalador conforme a seção abaixo e execute `dist\Contraponto-0.1.0-Setup-x64.exe`. A instalação é por usuário, por padrão em `%LOCALAPPDATA%\Programs\Contraponto`, e permite escolher outra pasta. O pacote atual **não tem assinatura digital**.
 
-1. Abra o Contraponto e clique em **+ Adicionar pasta** na raiz do projeto.
-2. Crie um chat e escolha agente, modelo, esforço e permissões.
-3. Descreva o pedido. `@Claude` e `@Codex` forçam o agente só naquela mensagem.
-4. Comece em **Perguntar** e acompanhe os cards de aprovação.
+1. Abra o Contraponto e clique em **Novo chat**.
+2. No campo de mensagem, escolha **Claude**, **Codex** ou **Auto**.
+3. Para trabalhar em arquivos, clique no botão de pasta (**Sem pasta**) e escolha a raiz do projeto. A pasta só pode ser trocada antes da primeira mensagem.
+4. Descreva o pedido. `@Claude` e `@Codex` forçam o agente só naquela mensagem.
 
-Modelos, esforços e permissões ficam em **Opções do turno**. No Automático, há um par de seletores para cada IA. A faixa do chat mostra quem está trabalhando e a próxima ação; **Ver pedido** leva à aprovação pendente. Ao subir no histórico, a leitura permanece no lugar e **Ir para a resposta** volta ao fim.
+Sem pasta, o chat funciona como conversa avulsa. Chats com pasta aparecem agrupados por pasta na lateral; o **+** do grupo abre outro chat na mesma pasta. O título do chat é gerado automaticamente a partir da primeira mensagem.
+
+Abaixo do campo de mensagem ficam a **Permissão** (**Perguntar**, **Aceitar edições** ou **Liberar tudo**) e **Modelo e esforço**. Em **Aceitar edições**, só ações arriscadas pedem aprovação. No Automático, há um par de seletores para cada IA. A faixa do chat mostra quem está trabalhando e a próxima ação; **Ver pedido** leva à aprovação pendente. Chamadas de ferramenta seguidas aparecem agrupadas numa linha de resumo. Tarefas em segundo plano (shells, subagentes) continuam visíveis no chat e na lateral depois que o turno termina. Ao subir no histórico, a leitura permanece no lugar e **Ir para a resposta** volta ao fim.
 
 Fechar a janela mantém o app na bandeja. O menu tem **Abrir** e **Sair**; **Sair** encerra também o agendador. Em **Configurações → Iniciar com o Windows**, habilite a inicialização automática se quiser; essa opção só é oferecida no app instalado e não é ativada por padrão.
 
@@ -131,4 +133,4 @@ O electron-builder reaproveita a distribuição do Electron instalada pelo npm. 
 
 Stack: Electron 45, React 19, TypeScript e electron-vite. Dados em `%APPDATA%\Contraponto`. O repositório do projeto de trabalho é separado dos dados e checkpoints do app.
 
-Plano e evidências de desenvolvimento: [docs/PLAN.md](docs/PLAN.md), [docs/spikes.md](docs/spikes.md) e [relatório da Fase 4](docs/phase4-report.md).
+Plano e evidências de desenvolvimento: [docs/PLAN.md](docs/PLAN.md), [docs/spikes.md](docs/spikes.md), [relatório da Fase 3](docs/phase3-report.md), [relatório da Fase 4](docs/phase4-report.md) e [revisão de UX](docs/phase5-ux-report.md).

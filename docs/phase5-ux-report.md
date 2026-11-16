@@ -16,7 +16,7 @@ A revisão mantém a barra lateral, o cabeçalho, o chat, o composer e as telas 
 
 Todos os PNGs de antes/depois são capturas reais do renderer do Electron, por DevTools Protocol. As dimensões da janela foram controladas pelo BrowserWindow da instância de desenvolvimento e conferidas com o tamanho do conteúdo. Não houve montagem, ocultação por CSS ou edição de pixels nesses prints.
 
-O banco, os arquivos e os scripts de teste ficam em `.phase5-tests/`, ignorada pelo Git. Os estados estáticos usam mensagens/arquivos de exemplo inseridos no banco isolado: permitem comparar exatamente a apresentação das mesmas mensagens, ferramentas, diffs, imagens, erros e avisos sem consumir cota. Os estados de execução, aprovação, ferramenta, conclusão e Desfazer vieram de turnos reais. Os testes de leitura do histórico também usaram eventos sintéticos de apresentação, sem invocar agentes.
+O banco, os arquivos e os scripts de teste ficaram em `.phase5-tests/`, ignorada pelo Git, e foram removidos depois da revisão. Os estados estáticos usam mensagens/arquivos de exemplo inseridos no banco isolado: permitem comparar exatamente a apresentação das mesmas mensagens, ferramentas, diffs, imagens, erros e avisos sem consumir cota. Os estados de execução, aprovação, ferramenta, conclusão e Desfazer vieram de turnos reais. Os testes de leitura do histórico também usaram eventos sintéticos de apresentação, sem invocar agentes.
 
 Não foi usado o histórico pessoal. As capturas passaram por bloqueio de caminhos de perfil e revisão das imagens; os PNGs não contêm EXIF. Caminhos de dados do usuário são referidos na documentação como **%APPDATA%**. O app continua delegando autenticação às CLIs oficiais e não ganhou qualquer tratamento de credenciais.
 

@@ -1,6 +1,6 @@
 # Fase 0 — Resultados dos testes técnicos
 
-Data: 2026-11-14 · Scripts em `scripts/spikes/` (rodar com `npx tsx <arquivo>.ts` dentro dessa pasta).
+Data: 2026-11-14 · Scripts em `scripts/spikes/` (instalar as dependências com `npm ci` e rodar com `npx tsx <arquivo>.ts` dentro dessa pasta).
 
 ## Resumo
 
