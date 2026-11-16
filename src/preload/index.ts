@@ -8,9 +8,9 @@ const invoke =
 
 const api: ContrapontoApi = {
   listProjects: invoke('listProjects') as ContrapontoApi['listProjects'],
-  addProject: invoke('addProject') as ContrapontoApi['addProject'],
   listChats: invoke('listChats') as ContrapontoApi['listChats'],
   createChat: invoke('createChat') as ContrapontoApi['createChat'],
+  chooseChatFolder: invoke('chooseChatFolder') as ContrapontoApi['chooseChatFolder'],
   updateChat: invoke('updateChat') as ContrapontoApi['updateChat'],
   deleteChat: invoke('deleteChat') as ContrapontoApi['deleteChat'],
   listEntries: invoke('listEntries') as ContrapontoApi['listEntries'],

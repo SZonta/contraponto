@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from './store';
 
 describe('Store', () => {
@@ -16,6 +16,40 @@ describe('Store', () => {
     expect(again.id).toBe(first.id);
     expect(first.name).toBe('Jogo');
     expect(store.listProjects()).toHaveLength(1);
+  });
+
+  it('lists every chat, most recent first, when no project is given', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const first = store.createChat(store.addProject('C:\\Projetos\\Jogo').id);
+    now.mockReturnValue(2000);
+    const second = store.createChat(store.addProject('C:\\Projetos\\Site').id);
+    now.mockReturnValue(3000);
+    store.addEntry(first.id, { kind: 'notice', text: 'later' });
+    now.mockRestore();
+    expect(store.listChats().map((chat) => chat.id)).toEqual([first.id, second.id]);
+  });
+
+  it('moves a chat without messages from its scratch folder into a chosen folder', () => {
+    const scratch = store.addProject('C:\\Data\\chats\\a', true);
+    expect(scratch.scratch).toBe(true);
+    const chat = store.createChat(scratch.id);
+    const moved = store.moveChat(chat.id, 'C:\\Projetos\\Jogo');
+    expect(store.getProject(moved.projectId)).toMatchObject({ path: 'C:\\Projetos\\Jogo', scratch: false });
+    expect(store.getProject(scratch.id)).toBeUndefined();
+  });
+
+  it('refuses to move a chat that already has messages', () => {
+    const chat = store.createChat(store.addProject('C:\\Data\\chats\\a', true).id);
+    store.addEntry(chat.id, { kind: 'user', text: 'oi', attachments: [] });
+    expect(() => store.moveChat(chat.id, 'C:\\Projetos\\Jogo')).toThrow('antes da primeira mensagem');
+  });
+
+  it('drops the scratch project with its chat but keeps real folders', () => {
+    const scratch = store.addProject('C:\\Data\\chats\\a', true);
+    const folder = store.addProject('C:\\Projetos\\Jogo');
+    store.deleteChat(store.createChat(scratch.id).id);
+    store.deleteChat(store.createChat(folder.id).id);
+    expect(store.listProjects().map((project) => project.id)).toEqual([folder.id]);
   });
 
   it('creates, updates and deletes chats with their entries', () => {
@@ -59,5 +93,32 @@ describe('Store', () => {
     store.setSetting('usage', { claude: 72 });
     expect(store.getSetting('usage')).toEqual({ claude: 72 });
     expect(store.getSetting('missing')).toBeUndefined();
+  });
+});
+
+describe('chat title storage limit', () => {
+  it('refuses an oversized title when creating a chat', () => {
+    const store = new Store(':memory:');
+    const project = store.addProject('C:\\Projects\\Example');
+    expect(() => store.createChat(project.id, { title: 'a'.repeat(61) })).toThrow('60 caracteres');
+    expect(store.listChats(project.id)).toHaveLength(0);
+    store.close();
+  });
+  it('refuses an oversized rename without changing the current title', () => {
+    const store = new Store(':memory:');
+    const project = store.addProject('C:\\Projects\\Example');
+    const chat = store.createChat(project.id, { title: 'Nome válido' });
+    expect(() => store.updateChat(chat.id, { title: 'a'.repeat(61) })).toThrow('60 caracteres');
+    expect(store.getChat(chat.id)?.title).toBe('Nome válido');
+    store.close();
+  });
+  it('stores a complete 60-character title and still permits session updates', () => {
+    const store = new Store(':memory:');
+    const project = store.addProject('C:\\Projects\\Example');
+    const title = 'a'.repeat(60);
+    const chat = store.createChat(project.id, { title });
+    store.updateChat(chat.id, { claudeSessionId: 'session' });
+    expect(store.getChat(chat.id)).toMatchObject({ title, claudeSessionId: 'session' });
+    store.close();
   });
 });

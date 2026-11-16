@@ -27,6 +27,9 @@ export function SchedulesView({ state }: { state: State }) {
   const [editingId, setEditingId] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
+  const folders = state.projects.filter((project) => !project.scratch);
+  const current = state.chats.find((chat) => chat.id === state.chatId)?.projectId;
+  const startEditor = () => { setEditingId(undefined); setEditor(fresh((folders.find((project) => project.id === current) ?? folders[0]).id)); };
   const act = async (action: () => Promise<unknown>) => {
     try { setError(null); await action(); } catch (reason) { setError(readableError(reason)); }
   };
@@ -36,7 +39,7 @@ export function SchedulesView({ state }: { state: State }) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0"><h1 className="text-lg font-semibold">Programe a próxima ação</h1>
             <p className="mt-2 max-w-xl text-sm text-muted">O app precisa estar aberto, inclusive na bandeja.</p></div>
-          {!!state.schedules.length && <button disabled={!state.projects.length} onClick={() => { setEditingId(undefined); setEditor(fresh(state.projectId ?? state.projects[0].id)); }}
+          {!!state.schedules.length && <button disabled={!folders.length} onClick={startEditor}
             className="primary-button shrink-0 disabled:opacity-40">+ Novo agendamento</button>}
         </div>
         <details className="mt-4 rounded border border-line bg-panel px-4 py-2 text-xs leading-relaxed text-muted"><summary>Como funcionam os horários e as aprovações?</summary><p className="pt-2">
@@ -44,7 +47,7 @@ export function SchedulesView({ state }: { state: State }) {
           Pedidos de aprovação continuam valendo; pausar não interrompe um turno que já começou.
         </p></details>
         {error && <p role="alert" className="mt-4 text-red-400">{error}</p>}
-        {!state.schedules.length && <div className="mt-8 rounded-lg border border-dashed border-control p-6 text-center"><h2 className="font-semibold">Nenhuma tarefa agendada</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted">Escolha um pedido curto e um horário. O resultado aparece em uma conversa.</p><button disabled={!state.projects.length} onClick={() => { setEditingId(undefined); setEditor(fresh(state.projectId ?? state.projects[0].id)); }} className="primary-button mt-5 disabled:opacity-40">+ Novo agendamento</button>{!state.projects.length && <p className="mt-3 text-xs text-muted">Adicione uma pasta antes de criar uma tarefa.</p>}</div>}
+        {!state.schedules.length && <div className="mt-8 rounded-lg border border-dashed border-control p-6 text-center"><h2 className="font-semibold">Nenhuma tarefa agendada</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted">Escolha um pedido curto e um horário. O resultado aparece em uma conversa.</p><button disabled={!folders.length} onClick={startEditor} className="primary-button mt-5 disabled:opacity-40">+ Novo agendamento</button>{!folders.length && <p className="mt-3 text-xs text-muted">Escolha uma pasta em um chat antes de criar uma tarefa.</p>}</div>}
         <div className="mt-6 grid gap-3">
           {state.schedules.map((item) => <article key={item.id} className="rounded-lg border border-line bg-panel p-4">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -60,7 +63,7 @@ export function SchedulesView({ state }: { state: State }) {
             <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-3 text-xs text-muted">
               <span>Próxima: {item.enabled ? dateLabel(item.nextRunAt) : 'pausado'}</span>
               <span>Última: {item.lastRunAt ? `${dateLabel(item.lastRunAt)} · ${statuses[item.lastStatus]}` : 'ainda não executou'}</span>
-              {item.lastChatId && <button onClick={() => state.openChat(item.projectId, item.lastChatId!)} className="ml-auto text-codex">Ver resultado →</button>}
+              {item.lastChatId && <button onClick={() => state.openChat(item.lastChatId!)} className="ml-auto text-codex">Ver resultado →</button>}
             </div>
             {item.lastError && <p className="mt-2 text-xs text-red-400">{item.lastError}</p>}
           </article>)}
@@ -95,7 +98,7 @@ function ScheduleEditor({ initial, id, state, onClose }: { initial: ScheduleInpu
     <form id="schedule-editor-form" onSubmit={save} aria-label="Agendamento">
       <div className="grid grid-cols-2 gap-4">
         <label className="col-span-2 text-xs text-muted">Nome<input required maxLength={100} className={`${fieldClass} mt-1`} value={draft.name} onChange={(event) => change({ name: event.target.value })} placeholder="Ex.: revisar alterações da manhã" /></label>
-        <label className="text-xs text-muted">Projeto<select className={`${fieldClass} mt-1`} value={draft.projectId} onChange={(event) => change({ projectId: event.target.value, chatId: null })}>{state.projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label className="text-xs text-muted">Pasta<select className={`${fieldClass} mt-1`} value={draft.projectId} onChange={(event) => change({ projectId: event.target.value, chatId: null })}>{state.projects.filter((item) => !item.scratch).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="text-xs text-muted">Quando<select className={`${fieldClass} mt-1`} value={draft.trigger.kind} onChange={(event) => change({ trigger: event.target.value === 'interval' ? { kind: 'interval', minutes: 60 } : event.target.value === 'cron' ? { kind: 'cron', expression: '0 9 * * 1-5', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } : { kind: 'once', at: Date.now() + 3600000 } })}><option value="interval">Intervalo fixo</option><option value="cron">Cron com fuso</option><option value="once">Uma vez</option></select></label>
         {draft.trigger.kind === 'interval' && <label className="col-span-2 text-xs text-muted">Intervalo em minutos<input className={`${fieldClass} mt-1`} type="number" min={1} max={525600} required value={draft.trigger.minutes} onChange={(event) => change({ trigger: { kind: 'interval', minutes: Number(event.target.value) } })} /></label>}
         {draft.trigger.kind === 'once' && <label className="col-span-2 text-xs text-muted">Data e hora deste computador ({Intl.DateTimeFormat().resolvedOptions().timeZone})<input className={`${fieldClass} mt-1`} type="datetime-local" required value={onceLocal} onChange={(event) => change({ trigger: { kind: 'once', at: new Date(event.target.value).getTime() } })} /></label>}

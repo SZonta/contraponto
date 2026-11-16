@@ -46,24 +46,42 @@ export function turnActivity(mode: AgentMode, running: boolean, entries: StoredE
   return { agent: leader, kind: 'working', title: 'Preparando a resposta', detail: 'O turno começou. Você pode pará-lo a qualquer momento.' } as const;
 }
 
-export type WorkEntry = Extract<StoredEntry, { kind: 'tool' | 'fileChange' }>;
+export type WorkEntry = Extract<StoredEntry, { kind: 'assistant' | 'tool' | 'fileChange' }>;
 /** endAt: when the next entry arrived, i.e. when this run of work stopped. */
 export type ChatBlock = { kind: 'entry'; entry: StoredEntry } | { kind: 'work'; id: string; items: WorkEntry[]; endAt: number | null };
 
-/** Consecutive tool calls and file changes collapse into one block, so they don't flood the chat. */
+/** Keep progress messages with their tools; leave trailing answers and turn boundaries visible. */
 export function groupWork(entries: StoredEntry[]): ChatBlock[] {
   const blocks: ChatBlock[] = [];
+  let pending: WorkEntry[] = [];
+  const flush = (endAt: number | null) => {
+    const lastTool = pending.findLastIndex((entry) => entry.kind !== 'assistant');
+    if (lastTool >= 0) {
+      blocks.push({ kind: 'work', id: pending[0].id, items: pending.slice(0, lastTool + 1), endAt: pending[lastTool + 1]?.createdAt ?? endAt });
+    }
+    for (const entry of pending.slice(lastTool + 1)) blocks.push({ kind: 'entry', entry });
+    pending = [];
+  };
   for (const entry of entries) {
-    const last = blocks.at(-1);
-    if (entry.kind === 'tool' || entry.kind === 'fileChange') {
-      if (last?.kind === 'work') last.items.push(entry);
-      else blocks.push({ kind: 'work', id: entry.id, items: [entry], endAt: null });
+    if (entry.kind === 'assistant' || entry.kind === 'tool' || entry.kind === 'fileChange') {
+      pending.push(entry);
     } else {
-      if (last?.kind === 'work') last.endAt = entry.createdAt;
+      flush(entry.createdAt);
       blocks.push({ kind: 'entry', entry });
     }
   }
+  flush(null);
   return blocks;
+}
+
+export function workSteps(items: WorkEntry[]): { id: string; label: string; items: WorkEntry[] }[] {
+  const steps: { id: string; label: string; items: WorkEntry[] }[] = [];
+  for (const item of items) {
+    if (item.kind === 'assistant' || !steps.length) {
+      steps.push({ id: item.id, label: item.kind === 'assistant' ? item.text : item.kind === 'tool' ? toolLabel(item.name) : 'Arquivos alterados', items: [item] });
+    } else steps.at(-1)!.items.push(item);
+  }
+  return steps;
 }
 
 export function workSummary(items: WorkEntry[]): { text: string; failed: number } {

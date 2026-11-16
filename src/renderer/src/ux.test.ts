@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ApprovalRequest, ScheduleInput, StoredEntry } from '@shared/types';
-import { effortLabel, formatDuration, groupWork, mentionOptions, mentionTarget, permissionNotice, readableError, scheduleDraftError, toolLabel, turnActivity, workSummary } from './ux';
+import { effortLabel, formatDuration, groupWork, mentionOptions, mentionTarget, permissionNotice, readableError, scheduleDraftError, toolLabel, turnActivity, workSteps, workSummary } from './ux';
 
 function entry(value: Record<string, unknown>): StoredEntry {
   return { id: 'example', chatId: 'chat', createdAt: 1, ...value } as StoredEntry;
@@ -50,13 +50,45 @@ describe('current turn presentation', () => {
 describe('grouped work', () => {
   const at = (value: Record<string, unknown>, createdAt: number) => ({ ...entry(value), id: `e${createdAt}`, createdAt });
   const change = (createdAt: number, path: string) => at({ kind: 'fileChange', agent: 'claude', paths: [path] }, createdAt);
-  it('collapses consecutive tool calls and file changes into one block that ends at the next entry', () => {
+  it('keeps tool runs separated by progress updates in one group', () => {
     const blocks = groupWork([user, at(tool('claude', 'done'), 1000), at(tool('claude', 'failed'), 2000), change(3000, 'a.ts'),
       at({ kind: 'assistant', agent: 'claude', text: 'ok' }, 9000), at(tool('claude'), 10000)]);
-    expect(blocks.map((block) => block.kind)).toEqual(['entry', 'work', 'entry', 'work']);
-    expect(blocks[1]).toMatchObject({ kind: 'work', endAt: 9000 });
-    expect(blocks[1].kind === 'work' && workSummary(blocks[1].items)).toEqual({ text: '2 ações · 1 arquivo alterado', failed: 1 });
-    expect(blocks[3]).toMatchObject({ kind: 'work', endAt: null });
+    expect(blocks.map((block) => block.kind)).toEqual(['entry', 'work']);
+    expect(blocks[1]).toMatchObject({ kind: 'work', endAt: null });
+    expect(blocks[1].kind === 'work' && workSummary(blocks[1].items)).toEqual({ text: '3 ações · 1 arquivo alterado', failed: 1 });
+    expect(blocks[1].kind === 'work' && workSteps(blocks[1].items)).toHaveLength(2);
+  });
+  it('groups intermediate updates but keeps the final answer outside the completed work', () => {
+    const first = at({ kind: 'assistant', agent: 'claude', text: 'Reviewing the chat' }, 1000);
+    const next = at({ kind: 'assistant', agent: 'claude', text: 'Updating selectors' }, 3000);
+    const final = at({ kind: 'assistant', agent: 'claude', text: 'The requested changes are ready.' }, 6000);
+    const input = [user, first, at(tool('claude', 'done'), 2000), next, change(4000, 'a.ts'), final,
+      at({ kind: 'turnEnd', agent: 'claude', status: 'success' }, 7000)];
+    const blocks = groupWork(input);
+    expect(blocks.map((block) => block.kind)).toEqual(['entry', 'work', 'entry', 'entry']);
+    expect(blocks[2]).toEqual({ kind: 'entry', entry: final });
+    const work = blocks[1];
+    if (work.kind !== 'work') throw new Error('Expected grouped work');
+    expect(work.endAt).toBe(6000);
+    expect(workSteps(work.items).map((step) => step.label)).toEqual(['Reviewing the chat', 'Updating selectors']);
+  });
+  it('keeps images, errors, notices and new turns outside the work group', () => {
+    const boundaries = [
+      at({ kind: 'image', agent: 'claude', path: 'preview.png' }, 2),
+      at({ kind: 'error', agent: 'codex', message: 'Failed' }, 3),
+      at({ kind: 'notice', text: 'Notice' }, 4),
+      at({ kind: 'turnEnd', agent: 'claude', status: 'interrupted' }, 5),
+      { ...user, id: 'next-user' },
+    ];
+    for (const boundary of boundaries) {
+      const blocks = groupWork([at(tool('claude', 'done'), 1), boundary, at(tool('codex', 'failed'), 6)]);
+      expect(blocks.map((block) => block.kind)).toEqual(['work', 'entry', 'work']);
+      expect(blocks[1]).toEqual({ kind: 'entry', entry: boundary });
+    }
+  });
+  it('does not collapse plain answers without tools', () => {
+    const answer = at({ kind: 'assistant', agent: 'claude', text: 'A plain answer' }, 1000);
+    expect(groupWork([user, answer])).toEqual([{ kind: 'entry', entry: user }, { kind: 'entry', entry: answer }]);
   });
   it('counts a file changed twice once', () => {
     expect(workSummary([change(1, 'a.ts'), change(2, 'a.ts')] as never).text).toBe('1 arquivo alterado');

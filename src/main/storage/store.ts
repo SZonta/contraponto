@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import { CHAT_TITLE_LIMIT } from '@shared/chat-title';
 import type { Chat, ChatEntry, ChatSettings, Project, Schedule, StoredEntry } from '@shared/types';
 
 /** Each entry runs once, in order; PRAGMA user_version records how many ran. */
@@ -58,6 +59,8 @@ const MIGRATIONS: string[] = [
      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
      payload TEXT NOT NULL
    );`,
+  // Scratch projects are the private folders of chats started without a folder.
+  `ALTER TABLE projects ADD COLUMN scratch INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 /** One agent turn in a project: what was asked, what came back, which files changed. */
@@ -153,7 +156,7 @@ export class Store {
 
   listProjects(): Project[] {
     const rows = this.db.prepare('SELECT * FROM projects ORDER BY name COLLATE NOCASE').all() as any[];
-    return rows.map((row) => ({ id: row.id, path: row.path, name: row.name, createdAt: row.created_at }));
+    return rows.map((row) => ({ id: row.id, path: row.path, name: row.name, scratch: Boolean(row.scratch), createdAt: row.created_at }));
   }
 
   getProject(id: string): Project | undefined {
@@ -161,19 +164,33 @@ export class Store {
   }
 
   /** Returns the existing project when the folder was already added. */
-  addProject(folder: string): Project {
+  addProject(folder: string, scratch = false): Project {
     const existing = this.listProjects().find((project) => project.path.toLowerCase() === folder.toLowerCase());
     if (existing) return existing;
-    const project: Project = { id: randomUUID(), path: folder, name: path.basename(folder), createdAt: Date.now() };
+    const project: Project = { id: randomUUID(), path: folder, name: path.basename(folder), scratch, createdAt: Date.now() };
     this.db
-      .prepare('INSERT INTO projects (id, path, name, created_at) VALUES (?, ?, ?, ?)')
-      .run(project.id, project.path, project.name, project.createdAt);
+      .prepare('INSERT INTO projects (id, path, name, scratch, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(project.id, project.path, project.name, scratch ? 1 : 0, project.createdAt);
     return project;
   }
 
-  listChats(projectId: string): Chat[] {
-    const rows = this.db.prepare('SELECT * FROM chats WHERE project_id = ? ORDER BY updated_at DESC').all(projectId);
+  /** Most recent first; every chat when no project is given. */
+  listChats(projectId?: string): Chat[] {
+    const rows = projectId
+      ? this.db.prepare('SELECT * FROM chats WHERE project_id = ? ORDER BY updated_at DESC').all(projectId)
+      : this.db.prepare('SELECT * FROM chats ORDER BY updated_at DESC').all();
     return (rows as ChatRow[]).map(toChat);
+  }
+
+  /** Moves a chat that has no messages yet into a folder; its scratch project record goes away. */
+  moveChat(chatId: string, folder: string): Chat {
+    const chat = this.getChat(chatId);
+    if (!chat) throw new Error('Chat não encontrado.');
+    if (this.listEntries(chatId).length) throw new Error('A pasta só pode ser escolhida antes da primeira mensagem.');
+    const project = this.addProject(folder);
+    this.db.prepare('UPDATE chats SET project_id = ? WHERE id = ?').run(project.id, chatId);
+    this.dropScratch(chat.projectId);
+    return this.getChat(chatId)!;
   }
 
   getChat(id: string): Chat | undefined {
@@ -182,6 +199,7 @@ export class Store {
   }
 
   createChat(projectId: string, defaults: ChatSettings = {}): Chat {
+    if (Array.from(defaults.title ?? '').length > CHAT_TITLE_LIMIT) throw new Error('O título do chat deve ter no máximo 60 caracteres.');
     const now = Date.now();
     const id = randomUUID();
     this.db
@@ -207,6 +225,7 @@ export class Store {
   }
 
   updateChat(id: string, patch: ChatSettings & Partial<Pick<Chat, 'claudeSessionId' | 'codexThreadId'>>): Chat {
+    if (patch.title !== undefined && Array.from(patch.title).length > CHAT_TITLE_LIMIT) throw new Error('O título do chat deve ter no máximo 60 caracteres.');
     const keys = Object.keys(patch) as (keyof typeof CHAT_COLUMNS)[];
     if (keys.length > 0) {
       const assignments = keys.map((key) => `${CHAT_COLUMNS[key]} = ?`).join(', ');
@@ -217,7 +236,16 @@ export class Store {
   }
 
   deleteChat(id: string): void {
+    const chat = this.getChat(id);
     this.db.prepare('DELETE FROM chats WHERE id = ?').run(id);
+    if (chat) this.dropScratch(chat.projectId);
+  }
+
+  /** A scratch project serves one chat; once it has none, its record goes too. The folder stays on disk. */
+  private dropScratch(projectId: string): void {
+    if (this.getProject(projectId)?.scratch && !this.listChats(projectId).length) {
+      this.db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+    }
   }
 
   listEntries(chatId: string): StoredEntry[] {

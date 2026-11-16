@@ -6,7 +6,8 @@ export type AgentMode = AgentId | 'auto';
 /** ask = every action needs approval; acceptEdits = routine edits and commands run freely, risky ones ask; full = nothing asks. */
 export type PermissionLevel = 'ask' | 'acceptEdits' | 'full';
 
-export type Project = { id: string; path: string; name: string; createdAt: number };
+/** scratch = the private folder of a chat started without a folder. */
+export type Project = { id: string; path: string; name: string; scratch: boolean; createdAt: number };
 
 export type Chat = {
   id: string;
@@ -115,9 +116,12 @@ export type UiEvent =
 /** API exposed by the preload script as window.contraponto. */
 export interface ContrapontoApi {
   listProjects(): Promise<Project[]>;
-  addProject(): Promise<Project | null>;
-  listChats(projectId: string): Promise<Chat[]>;
-  createChat(projectId: string): Promise<Chat>;
+  /** Every chat when no project is given. */
+  listChats(projectId?: string): Promise<Chat[]>;
+  /** Without a project, the chat gets its own private folder. */
+  createChat(projectId?: string): Promise<Chat>;
+  /** Asks for a folder and moves the chat there; only before its first message. Null when cancelled. */
+  chooseChatFolder(chatId: string): Promise<Chat | null>;
   updateChat(chatId: string, settings: ChatSettings): Promise<Chat>;
   deleteChat(chatId: string): Promise<void>;
   listEntries(chatId: string): Promise<StoredEntry[]>;

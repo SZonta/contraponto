@@ -3,7 +3,7 @@ import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentId, ApprovalRequest, Chat, StoredEntry } from '@shared/types';
 import { AGENT_LABELS, api, imageSource, localImageUrl } from '../lib';
-import { formatDuration, groupWork, readableError, toolLabel, turnActivity, workSummary, type WorkEntry } from '../ux';
+import { formatDuration, groupWork, readableError, toolLabel, turnActivity, workSteps, workSummary, type WorkEntry } from '../ux';
 import { ImageViewer, type ViewedImage } from './ImageViewer';
 
 const AGENT_COLOR: Record<AgentId, string> = { claude: 'text-claude', codex: 'text-codex' };
@@ -34,27 +34,38 @@ function useNow(ticking: boolean): number {
   }, [ticking]);
   return now;
 }
-/** A run of tool calls as one line: spinner with the current action while it runs, a summary when done; details on demand. */
+/** One compact summary for progress updates and tools; individual steps expand on demand. */
 function WorkGroup({ items, endAt, active, projectPath }: { items: WorkEntry[]; endAt: number | null; active: boolean; projectPath: string }) {
   const [open, setOpen] = useState(false);
   const now = useNow(active);
   const current = active ? items.findLast((item) => item.kind === 'tool' && item.status === 'running') : undefined;
-  const agent = (current ?? items.at(-1)!).agent;
   const elapsed = (active ? now : endAt ?? items.at(-1)!.createdAt) - items[0].createdAt;
   const summary = workSummary(items);
-  return <div>
-    <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full min-w-0 items-center gap-2 py-1 text-left text-xs">
-      {active ? <span className={AGENT_COLOR[agent]}><Spinner /></span> : <span aria-hidden="true" className="w-3.5 shrink-0 text-center text-muted">✓</span>}
-      <span className={`shrink-0 font-semibold ${AGENT_COLOR[agent]}`}>{AGENT_LABELS[agent]}</span>
-      {current?.kind === 'tool'
-        ? <><span className="shrink-0">{toolLabel(current.name)}</span><span className="min-w-0 truncate font-mono text-muted">{current.detail}</span></>
-        : <span className="text-muted">{summary.text}{summary.failed > 0 && <span className="text-red-300"> · {summary.failed} não {summary.failed === 1 ? 'concluída' : 'concluídas'}</span>}</span>}
-      {elapsed >= 1000 && <span className="shrink-0 text-muted">{formatDuration(elapsed)}</span>}
-      <span aria-hidden="true" className="shrink-0 text-muted">{open ? '▾' : '›'}</span>
+  const steps = workSteps(items);
+  const completed = steps.filter((step) => step.items.every((item) => item.kind !== 'tool' || item.status === 'done')).length;
+  return <div className="work-response">
+    <div className="flex items-center gap-3">{[...new Set(items.map((item) => item.agent))].map((agent) => <AgentName key={agent} agent={agent} />)}</div>
+    <div className="work-group">
+    <button onClick={() => setOpen(!open)} aria-expanded={open} className="work-group-toggle">
+      {active ? <Spinner /> : <span aria-hidden="true" className={`work-status ${completed === steps.length ? '' : 'work-status-incomplete'}`}>{completed === steps.length ? '✓' : '!'}</span>}
+      <span className="work-group-title">{current?.kind === 'tool' ? toolLabel(current.name) : `${completed} ${completed === 1 ? 'etapa concluída' : 'etapas concluídas'}`}</span>
+      <span className="work-group-meta">{summary.text}{elapsed >= 1000 ? ` · ${formatDuration(elapsed)}` : ''}</span>
+      <span aria-hidden="true" className="work-chevron">{open ? '⌃' : '⌄'}</span>
     </button>
-    {open && <div className="mt-2 flex flex-col gap-2 border-l border-line pl-3">
-      {items.map((item) => <EntryView key={item.id} entry={item} latest={false} pending={false} projectPath={projectPath} />)}
-    </div>}
+    {summary.failed > 0 && <p className="work-group-warning">{summary.failed} {summary.failed === 1 ? 'ação não concluída' : 'ações não concluídas'}</p>}
+    {!active && items.some((item) => item.kind === 'tool' && item.status === 'running') && <p className="work-group-warning">Há ações sem confirmação de conclusão.</p>}
+    {open && <ol className="work-steps">{steps.map((step) => {
+      const failed = step.items.some((item) => item.kind === 'tool' && item.status === 'failed');
+      const pending = step.items.some((item) => item.kind === 'tool' && item.status === 'running');
+      const stepAgent = step.items[0].agent;
+      return <li key={step.id}><details className="work-step">
+        <summary><span aria-hidden="true" className={`work-status ${failed || pending ? 'work-status-incomplete' : ''}`}>{failed ? '!' : pending ? active ? '·' : '?' : '✓'}</span>
+          <span className="work-step-label">{step.label}</span><span className={AGENT_COLOR[stepAgent]}>{AGENT_LABELS[stepAgent]}</span><span aria-hidden="true">⌄</span>
+        </summary>
+        <div className="work-step-content">{step.items.map((item) => <EntryView key={item.id} entry={item} latest={false} pending={false} projectPath={projectPath} />)}</div>
+      </details></li>;
+    })}</ol>}
+    </div>
   </div>;
 }
 const OpenImage = createContext<(image: ViewedImage) => void>(() => {});
@@ -118,24 +129,30 @@ function TurnEnd({ entry, latest, pending }: { entry: Extract<StoredEntry, { kin
 }
 function ApprovalCard({ request }: { request: ApprovalRequest }) {
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const resolve = async (decision: 'allow' | 'allowSession' | 'deny') => {
     setBusy(true); setError(null);
     try { await api.resolveApproval(request.id, decision); }
     catch (reason) { setError(readableError(reason)); setBusy(false); }
   };
-  return <section id={`approval-${request.id}`} aria-label={`Pedido de aprovação do ${AGENT_LABELS[request.agent]}`} className="scroll-mt-3 rounded-lg border border-amber-400 bg-amber-950/25 p-4">
-    <p className="text-sm font-semibold"><span className={AGENT_COLOR[request.agent]}>{AGENT_LABELS[request.agent]}</span> aguarda você</p>
-    <p className="mt-1 text-sm">{request.title}</p>
-    <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-ink p-3 font-mono text-xs">{request.detail}</pre>
-    <p className="mt-2 text-xs text-muted">Permitir nesta sessão também autoriza pedidos semelhantes nesta conversa.</p>
-    <div className="mt-3 flex flex-wrap gap-2">
-      <button disabled={busy} onClick={() => void resolve('allow')} className="primary-button text-sm">Permitir uma vez</button>
-      <button disabled={busy} onClick={() => void resolve('allowSession')} className="secondary-button text-sm">Permitir nesta sessão</button>
-      <button disabled={busy} onClick={() => void resolve('deny')} className="secondary-button text-sm text-red-200">Negar</button>
+  return <section id={`approval-${request.id}`} aria-label={`Pedido de aprovação do ${AGENT_LABELS[request.agent]}`} className="approval-card">
+    <div className="approval-heading">
+      <span className={`approval-symbol ${AGENT_COLOR[request.agent]}`} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m12 3 7 3v6c0 4-7 9-7 9s-7-5-7-9V6Z" /><path d="m9 12 2 2 4-4" /></svg></span>
+      <div><p className="approval-title">{request.title}</p><p className="approval-subtitle"><span className={AGENT_COLOR[request.agent]}>{AGENT_LABELS[request.agent]}</span> aguarda sua autorização</p></div>
+      <span className="approval-badge">Aprovação necessária</span>
     </div>
-    {busy && <p role="status" className="mt-2 text-xs text-muted">Enviando sua decisão…</p>}
-    {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
+    <div className="approval-command"><div className="approval-command-heading"><span>{request.kind === 'command' ? 'Comando solicitado' : request.kind === 'file' ? 'Alteração solicitada' : 'Ação solicitada'}</span><button type="button" aria-expanded={expanded} aria-controls={`approval-detail-${request.id}`} onClick={() => setExpanded(!expanded)}>{expanded ? 'Recolher detalhes' : 'Expandir detalhes'}</button></div>
+      <pre id={`approval-detail-${request.id}`} className={expanded ? 'approval-detail-expanded' : ''}>{request.detail}</pre>
+    </div>
+    <div className="approval-actions">
+      <button disabled={busy} onClick={() => void resolve('allow')} className="approval-allow">Permitir uma vez</button>
+      <button disabled={busy} onClick={() => void resolve('allowSession')} className="approval-session">Permitir nesta sessão</button>
+      <button disabled={busy} onClick={() => void resolve('deny')} className="approval-deny">Negar</button>
+    </div>
+    <p className="approval-note">Permitir nesta sessão também autoriza pedidos semelhantes nesta conversa.</p>
+    {busy && <p role="status" className="approval-feedback text-muted">Enviando sua decisão…</p>}
+    {error && <p role="alert" className="approval-feedback text-red-300">{error}</p>}
   </section>;
 }
 
@@ -161,17 +178,12 @@ export function ChatView({ chat, entries, loadError, onReload, live, running, ba
   };
   return <OpenImage.Provider value={setViewed}>
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className={`flex shrink-0 items-center gap-3 border-b px-5 py-2.5 ${activity.kind === 'approval' ? 'border-amber-700 bg-amber-950/20' : 'border-line bg-panel/40'}`}>
-        <div className="min-w-0 flex-1" role="status" aria-live="polite" aria-atomic="true">
-          <p className="flex flex-wrap items-center gap-x-2 text-[13px]">{busy && <span className={AGENT_COLOR[activity.agent]}><Spinner /></span>}<span className={`font-semibold ${activity.kind === 'ready' && chat.agent === 'auto' ? 'text-muted' : AGENT_COLOR[activity.agent]}`}>{activity.kind === 'ready' && chat.agent === 'auto' ? 'Automático' : AGENT_LABELS[activity.agent]}</span><span>{activity.title}</span></p>
-          <p className="mt-0.5 text-xs text-muted">{activity.detail}</p>
-        </div>
-        {!!approvals.length && <button onClick={showApproval} className="secondary-button shrink-0 text-xs">Ver pedido{approvals.length > 1 ? ` (${approvals.length})` : ''}</button>}
-      </div>
-      <div ref={viewport} className="min-h-0 flex-1 overflow-y-auto" onScroll={() => {
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">{activity.title}{activity.kind === 'background' ? ': ' + activity.detail : ''}</div>
+      <div ref={viewport} tabIndex={0} aria-label="Histórico da conversa" className="chat-scroll min-h-0 flex-1 overflow-y-auto" onScroll={() => {
         const element = viewport.current!; following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80; setAway(!following.current);
       }}>
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-5 py-5">
+          {!!approvals.length && <div className="flex justify-end"><button onClick={showApproval} className="secondary-button text-xs">Ver pedido{approvals.length > 1 ? ' (' + approvals.length + ')' : ''}</button></div>}
           {!entries && (loadError ? <div role="alert" className="rounded-lg border border-red-700 bg-red-950/30 p-4 text-sm text-red-200"><p className="font-semibold">Não foi possível abrir esta conversa.</p><p className="mt-2 break-words">{loadError}</p><button onClick={onReload} className="secondary-button mt-3">Tentar novamente</button></div> : <p role="status" className="py-10 text-center text-sm text-muted">Carregando conversa…</p>)}
           {entries?.length === 0 && !running && <div className="py-8 text-center">
             <h1 className="text-lg font-semibold">Qual é a próxima ação?</h1>
@@ -182,7 +194,7 @@ export function ChatView({ chat, entries, loadError, onReload, live, running, ba
             ? <WorkGroup key={block.id} items={block.items} endAt={block.endAt} active={workActive && block === lastBlock} projectPath={projectPath} />
             : <EntryView key={block.entry.id} entry={block.entry} latest={block.entry.id === lastTurnEndId} pending={block.entry.id === lastTurnEndId && background.length > 0} projectPath={projectPath} />)}
           {live && <div><AgentName agent={live.agent} /><Answer text={live.text} projectPath={projectPath} /></div>}
-          {/* The status bar announces this already; this copy sits where the reader is looking. A running work group shows its own spinner. */}
+          {/* The live region announces this; the visible copy stays with the conversation. A running work group shows its own spinner. */}
           {busy && !(workActive && !live) && <div aria-hidden="true" className="flex items-center gap-2 text-xs text-muted">
             <span className={AGENT_COLOR[activity.agent]}><Spinner /></span><span>{activity.title}{activity.kind === 'background' ? `: ${activity.detail}` : '…'}</span>
           </div>}

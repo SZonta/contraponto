@@ -34,7 +34,7 @@ function fakeContext(summary: string | null = null) {
   return { context, finished };
 }
 
-function setup(scripts: { claude?: Script; codex?: Script }, summary: string | null = null) {
+function setup(scripts: { claude?: Script; codex?: Script }, summary: string | null = null, generateTitle: (text: string, agent: AgentId) => Promise<string | null> = async () => 'Resumo do pedido') {
   const store = new Store(':memory:');
   const events: UiEvent[] = [];
   const emit = (event: UiEvent) => events.push(event);
@@ -48,6 +48,8 @@ function setup(scripts: { claude?: Script; codex?: Script }, summary: string | n
     new SettingsService(store),
     context,
     emit,
+    undefined,
+    generateTitle,
   );
   const project = store.addProject('C:\\Projetos\\Jogo');
   const chat = store.createChat(project.id);
@@ -59,6 +61,63 @@ function setup(scripts: { claude?: Script; codex?: Script }, summary: string | n
 }
 
 describe('ChatService', () => {
+
+  it('names the chat from the whole first message without delaying its working turn', async () => {
+    let resolve!: (title: string) => void;
+    const generate = vi.fn(() => new Promise<string>((done) => { resolve = done; }));
+    const { service, chat, store, turnsEnded } = setup({}, null, generate);
+    const prompt = 'Faça nesta ordem, sem pausas para explicar: liste arquivos, execute comandos e teste tarefas em segundo plano.';
+    service.send(chat.id, prompt, []);
+    await turnsEnded();
+    expect(store.getChat(chat.id)?.title).toBe('Novo chat');
+    expect(generate).toHaveBeenCalledWith(prompt, 'claude');
+    resolve('Teste de comandos e segundo plano');
+    await vi.waitFor(() => expect(store.getChat(chat.id)?.title).toBe('Teste de comandos e segundo plano'));
+    service.send(chat.id, 'Outra mensagem', []);
+    await turnsEnded(2);
+    expect(generate).toHaveBeenCalledOnce();
+    store.close();
+  });
+
+  it('preserves a manual rename made while the summary is pending', async () => {
+    let resolve!: (title: string) => void;
+    const { service, chat, store, turnsEnded } = setup({}, null, () => new Promise((done) => { resolve = done; }));
+    service.send(chat.id, 'Pedido para resumir', []);
+    store.updateChat(chat.id, { title: 'Meu título' });
+    resolve('Título automático');
+    await turnsEnded();
+    expect(store.getChat(chat.id)?.title).toBe('Meu título');
+    store.close();
+  });
+
+  it('does not name scheduled or manually named chats automatically', async () => {
+    const generate = vi.fn(async () => 'Novo título');
+    const { service, chat, store, turnsEnded } = setup({}, null, generate);
+    store.updateChat(chat.id, { title: 'Nome escolhido' });
+    service.send(chat.id, 'Pedido', []);
+    await turnsEnded();
+    expect(generate).not.toHaveBeenCalled();
+    expect(store.getChat(chat.id)?.title).toBe('Nome escolhido');
+    store.close();
+  });
+
+  it.each(['a'.repeat(61), 'Título incompleto...', 'Título incompleto…'])('refuses invalid generated names before writing to storage: %s', async (title) => {
+    const { service, chat, store, turnsEnded } = setup({}, null, async () => title);
+    service.send(chat.id, 'Pedido', []);
+    await turnsEnded();
+    expect(store.getChat(chat.id)?.title).toBe('Novo chat');
+    store.close();
+  });
+
+  it('can save a complete 60-character title without truncation', async () => {
+    const title = 'a'.repeat(60);
+    const { service, chat, store, turnsEnded } = setup({}, null, async () => title);
+    service.send(chat.id, 'Pedido', []);
+    await turnsEnded();
+    expect(store.getChat(chat.id)?.title).toBe(title);
+    store.close();
+  });
+
   it('queues a scheduled continuation behind a manual turn and applies its model at execution time', async () => {
     let release!: () => void;
     let first = true;
@@ -101,7 +160,7 @@ describe('ChatService', () => {
     service.send(chat.id, 'Liste os arquivos', []);
     await turnsEnded();
 
-    expect(store.getChat(chat.id)).toMatchObject({ claudeSessionId: 's-1', title: 'Liste os arquivos' });
+    expect(store.getChat(chat.id)).toMatchObject({ claudeSessionId: 's-1', title: 'Resumo do pedido' });
     const entries = store.listEntries(chat.id);
     expect(entries.map((entry) => entry.kind)).toEqual(['user', 'tool', 'assistant', 'turnEnd']);
     expect(entries.at(-1)).toMatchObject({ status: 'success', files: ['claude.txt'], timelineId: 't1' });

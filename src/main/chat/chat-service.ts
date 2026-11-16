@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { normalizeChatTitle } from '@shared/chat-title';
 import type { AgentId, ApprovalDecision, ApprovalRequest, Attachment, Chat, ChatSettings, Project, StoredEntry, UiEvent } from '@shared/types';
 import type { AdapterEvent, AgentAdapter, ApprovalPrompt, TurnInput } from '../agents/adapter';
 import {
@@ -57,6 +58,7 @@ export class ChatService {
     private readonly context: TurnContext,
     private readonly emit: (event: UiEvent) => void,
     private readonly preview?: { script: string; directory: string },
+    private readonly generateTitle?: (text: string, agent: AgentId) => Promise<string | null>,
   ) {}
 
   runningChats(): string[] {
@@ -94,14 +96,15 @@ export class ChatService {
     const project = this.store.getProject(chat.projectId);
     if (!project) throw new Error('Pasta do projeto não encontrada.');
 
+    const needsTitle = chat.title === DEFAULT_TITLE && text.trim() && !this.store.listEntries(chatId).some((entry) => entry.kind === 'user');
     this.addEntry(chatId, { kind: 'user', text, attachments });
-    if (chat.title === DEFAULT_TITLE && text.trim()) {
-      const title = text.trim().replace(/\s+/g, ' ').slice(0, 48);
-      this.emit({ type: 'chatUpdated', chat: this.store.updateChat(chatId, { title }) });
-    }
 
     this.running.add(chatId);
     this.emit({ type: 'turnState', chatId, running: true });
+    if (needsTitle && this.generateTitle) {
+      const route = decideRoute(chat.agent, text, this.usage.list(), this.settings.get());
+      void this.nameChat(chatId, text, route.agent);
+    }
     const previous = this.locks.get(project.id);
     if (previous) this.addEntry(chatId, { kind: 'notice', text: 'Outra conversa está trabalhando nesta pasta. Esta mensagem roda quando ela terminar.' });
     const turn = (previous ?? Promise.resolve()).catch(() => {}).then(() => this.runTurn(chatId, text, attachments, settings));
@@ -110,6 +113,17 @@ export class ChatService {
       if (this.locks.get(project.id) === turn) this.locks.delete(project.id);
     }).catch(() => {});
     return turn;
+  }
+
+  private async nameChat(chatId: string, text: string, agent: AgentId): Promise<void> {
+    try {
+      const title = normalizeChatTitle(await this.generateTitle!(text, agent));
+      if (title && this.store.getChat(chatId)?.title === DEFAULT_TITLE) {
+        this.emit({ type: 'chatUpdated', chat: this.store.updateChat(chatId, { title }) });
+      }
+    } catch (error) {
+      console.error('[chat-title]', error);
+    }
   }
 
   async interrupt(chatId: string): Promise<void> {

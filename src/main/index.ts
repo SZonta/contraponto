@@ -1,12 +1,15 @@
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, powerMonitor, powerSaveBlocker, protocol, shell, Tray } from 'electron';
+import { CHAT_TITLE_LIMIT } from '@shared/chat-title';
 import type { AgentId, AgentUsage, AppSettings, ApprovalDecision, Attachment, ChatSettings, ScheduleInput, UiEvent } from '@shared/types';
 import { ClaudeAdapter } from './agents/claude/claude-adapter';
 import { CodexAdapter } from './agents/codex/codex-adapter';
 import { AttachmentStore } from './attachments';
 import { ChatService } from './chat/chat-service';
+import { ChatTitleGenerator } from './chat/chat-title-generator';
 import { stripHostAgentEnv } from './env';
 import { SettingsService } from './orchestrator/settings-service';
 import { Timeline } from './timeline/timeline';
@@ -54,6 +57,8 @@ function createWindow(): void {
     icon: iconPath,
     backgroundColor: '#1c1b19',
     autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#1c1b19', symbolColor: '#ece7df', height: 32 },
     webPreferences: { preload: path.join(here, '../preload/index.cjs'), sandbox: true, contextIsolation: true },
   });
   if (import.meta.env.DEV && !app.isPackaged && process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -110,9 +115,10 @@ if (primaryInstance) app.whenReady().then(() => {
   const previews = path.join(dataFolder, 'previews');
   mkdirSync(previews, { recursive: true });
   const previewScript = app.isPackaged ? path.join(process.resourcesPath, 'blender/render_preview.py') : path.resolve(here, '../../scripts/blender/render_preview.py');
-  const chats = new ChatService(store, adapters, usage, settings, timeline, emit, { script: previewScript, directory: previews });
+  const titles = new ChatTitleGenerator();
+  const chats = new ChatService(store, adapters, usage, settings, timeline, emit, { script: previewScript, directory: previews }, (text, agent) => titles.generate(text, agent));
   const scheduler = new Scheduler(store, async (schedule) => {
-    const chat = schedule.continueChat ? store.getChat(schedule.chatId!) : store.createChat(schedule.projectId, { ...schedule.settings, title: schedule.name });
+    const chat = schedule.continueChat ? store.getChat(schedule.chatId!) : store.createChat(schedule.projectId, { ...schedule.settings, title: Array.from(schedule.name).length <= CHAT_TITLE_LIMIT ? schedule.name : undefined });
     if (!chat || chat.projectId !== schedule.projectId) throw new Error('O chat do agendamento foi apagado. Edite o agendamento.');
     emit({ type: 'chatUpdated', chat });
     return { chatId: chat.id, status: await chats.sendAndWait(chat.id, schedule.prompt, schedule.settings) };
@@ -131,14 +137,16 @@ if (primaryInstance) app.whenReady().then(() => {
     ipcMain.handle(`cp:${channel}`, (_event, ...args) => handler(...args));
 
   handle('listProjects', () => store.listProjects());
-  handle('addProject', async () => {
-    const result = await dialog.showOpenDialog(window!, { title: 'Escolha a pasta do projeto', properties: ['openDirectory'] });
-    return result.canceled || !result.filePaths[0] ? null : store.addProject(result.filePaths[0]);
-  });
-  handle('listChats', (projectId: string) => store.listChats(projectId));
-  handle('createChat', (projectId: string) => {
-    // A new chat starts with the settings of the most recent one in the same project.
+  handle('listChats', (projectId?: string) => store.listChats(projectId));
+  handle('createChat', (projectId?: string) => {
+    // A new chat starts with the settings of the most recent one in the same project, or anywhere.
     const last = store.listChats(projectId)[0];
+    if (!projectId) {
+      // Without a folder, the agents work in a private folder of their own.
+      const folder = path.join(dataFolder, 'chats', randomUUID());
+      mkdirSync(folder, { recursive: true });
+      projectId = store.addProject(folder, true).id;
+    }
     return store.createChat(
       projectId,
       last && {
@@ -150,6 +158,10 @@ if (primaryInstance) app.whenReady().then(() => {
         permissionLevel: last.permissionLevel,
       },
     );
+  });
+  handle('chooseChatFolder', async (chatId: string) => {
+    const result = await dialog.showOpenDialog(window!, { title: 'Escolha a pasta da conversa', properties: ['openDirectory'] });
+    return result.canceled || !result.filePaths[0] ? null : store.moveChat(chatId, result.filePaths[0]);
   });
   handle('updateChat', (chatId: string, settings: ChatSettings) => store.updateChat(chatId, settings));
   handle('deleteChat', (chatId: string) => store.deleteChat(chatId));
@@ -209,6 +221,7 @@ if (primaryInstance) app.whenReady().then(() => {
   app.on('will-quit', () => {
     scheduler.stop();
     powerMonitor.removeListener('resume', resume);
+    titles.dispose();
     claude.dispose();
     codex.dispose();
     tray?.destroy();
