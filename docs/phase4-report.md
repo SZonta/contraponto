@@ -48,7 +48,7 @@ A recuperação foi coberta por relógio controlado, persistência em disco, mud
 
 Instalador final: `C:\Projetos\contraponto\dist\Contraponto-0.1.0-Setup-x64.exe`.
 
-Instalação final de conferência: `C:\Projetos\contraponto\.phase4-tests\installed-final`.
+Instalação final: `%LOCALAPPDATA%\Programs\Contraponto` (padrão do instalador por usuário). Dados do app: `%APPDATA%\contraponto`.
 
 Tamanho: **385.286.696 bytes** (aproximadamente 367 MiB). SHA-256: `EBC873719D7B5D1A86675E1065B879FEC7242C67F93FAB1C54D8B41B9B18DDD1`.
 
@@ -62,7 +62,7 @@ No aplicativo instalado:
 - Na instalação final, **sem limpeza externa de ambiente**, Claude criou `installed-claude-final.txt` com `CLAUDE_TOOL_OK` e Codex criou `installed-codex-final.txt` com `CODEX_TOOL_OK` por PowerShell, ambos somente no projeto descartável e com aprovações. Isso valida ferramentas além das respostas de texto.
 - A conferência adicional de ferramentas encontrou e corrigiu uma dependência indevida do ambiente do Codex Desktop: variáveis de sessão/identidade do launcher Core estavam sendo herdadas pela CLI independente. O app agora as remove antes de iniciar os agentes, preservando `CODEX_HOME`, certificados, PATH e a restrição de rede. As configurações globais e as credenciais do usuário não foram alteradas. A criação de arquivo via PowerShell voltou a funcionar.
 
-Os ícones foram extraídos tanto do executável instalado quanto do instalador e inspecionados; ambos contêm o desenho do Contraponto. Evidências locais e scripts de conferência desta sessão ficam em `.phase4-tests/`, ignorada pelo Git. A pasta da primeira instalação de teste foi desinstalada; a instalação final permanece disponível. A porta DevTools foi usada somente durante a conferência, com a flag padrão do Electron; a sessão final do app foi aberta sem essa flag.
+Os ícones foram extraídos tanto do executável instalado quanto do instalador e inspecionados; ambos contêm o desenho do Contraponto. As evidências locais e os scripts de conferência desta sessão ficaram em `.phase4-tests/`, ignorada pelo Git, e foram removidos depois da conferência. As instalações de teste foram desinstaladas. A porta DevTools foi usada somente durante a conferência, com a flag padrão do Electron; a sessão final do app foi aberta sem essa flag.
 
 ![Chat instalado](images/chat.png)
 
