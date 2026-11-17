@@ -124,6 +124,8 @@ export interface ContrapontoApi {
   chooseChatFolder(chatId: string): Promise<Chat | null>;
   updateChat(chatId: string, settings: ChatSettings): Promise<Chat>;
   deleteChat(chatId: string): Promise<void>;
+  /** Deletes the chat only if nothing was ever sent in it. True when it was deleted. */
+  discardEmptyChat(chatId: string): Promise<boolean>;
   listEntries(chatId: string): Promise<StoredEntry[]>;
   sendMessage(chatId: string, text: string, attachments: Attachment[]): Promise<void>;
   interrupt(chatId: string): Promise<void>;

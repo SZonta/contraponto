@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, powerMonitor, powerSaveBlocker, protocol, shell, Tray } from 'electron';
 import { CHAT_TITLE_LIMIT } from '@shared/chat-title';
@@ -14,6 +14,7 @@ import { stripHostAgentEnv } from './env';
 import { SettingsService } from './orchestrator/settings-service';
 import { Timeline } from './timeline/timeline';
 import { Store } from './storage/store';
+import { removeFolder } from './storage/remove-folder';
 import { UsageService } from './usage/usage-service';
 import { Scheduler } from './scheduler/scheduler';
 
@@ -91,6 +92,17 @@ function createWindow(): void {
   });
 }
 
+/** Removes private chat folders no chat uses anymore (left by locked deletes or older versions). */
+function sweepScratchFolders(root: string, store: Store): void {
+  const used = new Set(store.listProjects().filter((project) => project.scratch).map((project) => path.resolve(project.path).toLowerCase()));
+  let names: string[];
+  try { names = readdirSync(root); } catch { return; }
+  for (const name of names) {
+    const folder = path.resolve(root, name);
+    if (!used.has(folder.toLowerCase())) void removeFolder(folder).catch(() => {});
+  }
+}
+
 const primaryInstance = app.requestSingleInstanceLock();
 if (!primaryInstance) app.quit();
 app.on('second-instance', showWindow);
@@ -104,6 +116,7 @@ if (primaryInstance) app.whenReady().then(() => {
   const store = new Store(path.join(dataFolder, 'contraponto.db'));
   // Development only: registers a folder without the picker, for scripted checks.
   if (import.meta.env.DEV && !app.isPackaged && process.env.CONTRAPONTO_SEED_PROJECT) store.addProject(process.env.CONTRAPONTO_SEED_PROJECT);
+  sweepScratchFolders(path.join(dataFolder, 'chats'), store);
   const attachments = new AttachmentStore(path.join(dataFolder, 'attachments'));
   const usage = new UsageService(store, emit);
   const claude = new ClaudeAdapter();
@@ -164,8 +177,12 @@ if (primaryInstance) app.whenReady().then(() => {
     return result.canceled || !result.filePaths[0] ? null : store.moveChat(chatId, result.filePaths[0]);
   });
   handle('updateChat', (chatId: string, settings: ChatSettings) => store.updateChat(chatId, settings));
-  handle('deleteChat', (chatId: string) => store.deleteChat(chatId));
-  handle('listEntries', (chatId: string) => store.listEntries(chatId));
+  handle('deleteChat', (chatId: string) => {
+    claude.closeChat(chatId);
+    store.deleteChat(chatId);
+  });
+  handle('discardEmptyChat', (chatId: string) => store.deleteChatIfEmpty(chatId));
+  handle('listEntries',(chatId: string) => store.listEntries(chatId));
   handle('sendMessage', (chatId: string, text: string, files: Attachment[]) => chats.send(chatId, text, files));
   handle('interrupt', (chatId: string) => chats.interrupt(chatId));
   handle('pickAttachments', async () => {

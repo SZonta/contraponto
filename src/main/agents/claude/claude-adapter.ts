@@ -225,6 +225,12 @@ export class ClaudeAdapter implements AgentAdapter {
     await this.sessions.get(chatId)?.interrupt();
   }
 
+  /** Ends the chat's Claude Code process, which otherwise keeps the chat folder open. */
+  closeChat(chatId: string): void {
+    this.sessions.get(chatId)?.close();
+    this.sessions.delete(chatId);
+  }
+
   async listModels(): Promise<ModelOption[]> {
     return (await this.probe()).models;
   }

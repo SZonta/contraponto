@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentId, AgentUsage, ApprovalRequest, Chat, ModelOption, Project, Schedule, StoredEntry } from '@shared/types';
 import { api } from './lib';
 import { EMPTY_DRAFT, readableError, type Draft, type DraftUpdate } from './ux';
@@ -128,10 +128,29 @@ export function useAppState() {
       .catch((reason) => setEntryErrors((current) => ({ ...current, [chatId]: readableError(reason) })));
   }, [chatId, entries, revision]);
 
+  /** A chat made with "Novo chat" goes away if the user leaves it before sending anything. */
+  const freshChatId = useRef<string | null>(null);
+  const discardFresh = useCallback(() => {
+    const id = freshChatId.current;
+    if (!id) return;
+    freshChatId.current = null;
+    void api.discardEmptyChat(id).then(async (deleted) => {
+      if (!deleted) return;
+      setChats((current) => current.filter((chat) => chat.id !== id));
+      setProjects(await api.listProjects());
+    }).catch((reason) => setError(readableError(reason)));
+  }, []);
+
+  useEffect(() => {
+    if (freshChatId.current && (freshChatId.current !== chatId || schedulesOpen)) discardFresh();
+  }, [chatId, schedulesOpen, discardFresh]);
+
   /** Without a project, the chat starts with no folder. */
   const createChat = useCallback(async (projectId?: string) => {
     try {
     const chat = await api.createChat(projectId);
+    discardFresh();
+    freshChatId.current = chat.id;
     setProjects(await api.listProjects());
     setChats((current) => [chat, ...current]);
     setChatId(chat.id);

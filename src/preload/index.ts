@@ -13,6 +13,7 @@ const api: ContrapontoApi = {
   chooseChatFolder: invoke('chooseChatFolder') as ContrapontoApi['chooseChatFolder'],
   updateChat: invoke('updateChat') as ContrapontoApi['updateChat'],
   deleteChat: invoke('deleteChat') as ContrapontoApi['deleteChat'],
+  discardEmptyChat: invoke('discardEmptyChat') as ContrapontoApi['discardEmptyChat'],
   listEntries: invoke('listEntries') as ContrapontoApi['listEntries'],
   sendMessage: invoke('sendMessage') as ContrapontoApi['sendMessage'],
   interrupt: invoke('interrupt') as ContrapontoApi['interrupt'],

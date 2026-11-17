@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Store } from './store';
 
 describe('Store', () => {
@@ -50,6 +54,39 @@ describe('Store', () => {
     store.deleteChat(store.createChat(scratch.id).id);
     store.deleteChat(store.createChat(folder.id).id);
     expect(store.listProjects().map((project) => project.id)).toEqual([folder.id]);
+  });
+
+  it('removes the scratch folder from disk when its chat is deleted or moved', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'cp-chats-'));
+    try {
+      const deleted = path.join(root, 'a');
+      const moved = path.join(root, 'b');
+      mkdirSync(deleted);
+      writeFileSync(path.join(deleted, 'file.txt'), 'x');
+      mkdirSync(moved);
+      // Like a closing agent process: it holds the folder as its working directory for a moment.
+      const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { cwd: deleted });
+      setTimeout(() => holder.kill(), 300);
+      store.deleteChat(store.createChat(store.addProject(deleted, true).id).id);
+      store.moveChat(store.createChat(store.addProject(moved, true).id).id, 'C:\\Projetos\\Jogo');
+      await vi.waitFor(() => {
+        expect(existsSync(deleted)).toBe(false);
+        expect(existsSync(moved)).toBe(false);
+      }, { timeout: 5000 });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('discards a chat only while nothing was sent in it', () => {
+    const project = store.addProject('C:\\Projetos\\Jogo');
+    const empty = store.createChat(project.id);
+    const used = store.createChat(project.id);
+    store.addEntry(used.id, { kind: 'user', text: 'oi', attachments: [] });
+    expect(store.deleteChatIfEmpty(empty.id)).toBe(true);
+    expect(store.deleteChatIfEmpty(used.id)).toBe(false);
+    expect(store.deleteChatIfEmpty('missing')).toBe(false);
+    expect(store.listChats().map((chat) => chat.id)).toEqual([used.id]);
   });
 
   it('creates, updates and deletes chats with their entries', () => {

@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { CHAT_TITLE_LIMIT } from '@shared/chat-title';
 import type { Chat, ChatEntry, ChatSettings, Project, Schedule, StoredEntry } from '@shared/types';
+import { removeFolder } from './remove-folder';
 
 /** Each entry runs once, in order; PRAGMA user_version records how many ran. */
 const MIGRATIONS: string[] = [
@@ -241,10 +242,20 @@ export class Store {
     if (chat) this.dropScratch(chat.projectId);
   }
 
-  /** A scratch project serves one chat; once it has none, its record goes too. The folder stays on disk. */
+  /** Sending adds the user entry before anything else, so an empty chat never ran a turn. */
+  deleteChatIfEmpty(id: string): boolean {
+    if (!this.getChat(id) || this.listEntries(id).length) return false;
+    this.deleteChat(id);
+    return true;
+  }
+
+  /** A scratch project serves one chat; once it has none, its record and folder go too. */
   private dropScratch(projectId: string): void {
-    if (this.getProject(projectId)?.scratch && !this.listChats(projectId).length) {
+    const project = this.getProject(projectId);
+    if (project?.scratch && !this.listChats(projectId).length) {
       this.db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+      // Retries while a closing agent process lets go of the folder; if it never does, the sweep at the next start removes it.
+      void removeFolder(project.path).catch(() => {});
     }
   }
 
