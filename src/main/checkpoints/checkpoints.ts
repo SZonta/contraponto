@@ -124,6 +124,14 @@ export class Checkpoints {
     });
   }
 
+  /** Disk space the repository's objects take, loose and packed. */
+  async storedBytes(): Promise<number> {
+    await this.ready;
+    const stats = await this.git('count-objects', '-v');
+    const kib = (key: string) => Number(stats.match(new RegExp(`^${key}: (\\d+)`, 'm'))?.[1] ?? 0);
+    return (kib('size') + kib('size-pack')) * 1024;
+  }
+
   async changes(from: string, to: string): Promise<FileChange[]> {
     const output = await this.git('diff', '--name-status', '--no-renames', from, to);
     return output

@@ -19,6 +19,21 @@ import type { UsageService } from '../usage/usage-service';
 
 type PendingApproval = { request: ApprovalRequest; resolve: (decision: ApprovalDecision) => void };
 
+/** A turn recorded in the timeline, with what it cost in checkpoints. */
+type FinishedTurn = {
+  id: string;
+  files: string[];
+  /** Files over the size limit, which undo cannot restore. */
+  skipped?: string[];
+  added?: { bytes: number; largest: { path: string; bytes: number }[] };
+};
+
+const HEAVY_TURN_BYTES = 200 * 1024 * 1024;
+
+function megabytes(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
 /** Checkpoints and timeline of a project (implemented by Timeline). */
 export interface TurnContext {
   begin(project: Project): Promise<string>;
@@ -26,7 +41,7 @@ export interface TurnContext {
   finish(
     project: Project,
     turn: { chatId: string; agent: AgentId; prompt: string; result: string; beforeRef: string },
-  ): Promise<{ id: string; files: string[]; skipped?: string[] }>;
+  ): Promise<FinishedTurn>;
   undo(project: Project, timelineId: string): Promise<string[]>;
 }
 
@@ -223,7 +238,7 @@ export class ChatService {
     if (beforeRef) {
       try {
         const finished = await this.context.finish(project, { chatId, agent, prompt, result: state.lastMessage, beforeRef });
-        this.noteSkipped(chatId, finished.skipped);
+        this.noteStorage(chatId, finished);
         timeline = finished;
       } catch (error) {
         this.addEntry(chatId, { kind: 'error', agent, message: `Não consegui registrar o checkpoint: ${error instanceof Error ? error.message : String(error)}` });
@@ -232,11 +247,17 @@ export class ChatService {
     this.addEntry(chatId, { kind: 'turnEnd', agent, status: state.status, files: timeline?.files, timelineId: timeline?.id });
   }
 
-  /** Tells the user which big files undo cannot bring back, at the turn that touched them. */
-  private noteSkipped(chatId: string, skipped: string[] | undefined) {
-    if (!skipped?.length) return;
-    const names = skipped.length > 5 ? `${skipped.slice(0, 5).join(', ')} e mais ${skipped.length - 5}` : skipped.join(', ');
-    this.addEntry(chatId, { kind: 'notice', text: `Acima de 100 MB, fora do checkpoint (Desfazer não restaura): ${names}` });
+  /** Tells the user, at the turn that did it, which big files undo cannot restore and what the turn cost. */
+  private noteStorage(chatId: string, { skipped, added }: Pick<FinishedTurn, 'skipped' | 'added'>) {
+    if (skipped?.length) {
+      const names = skipped.length > 5 ? `${skipped.slice(0, 5).join(', ')} e mais ${skipped.length - 5}` : skipped.join(', ');
+      this.addEntry(chatId, { kind: 'notice', text: `Acima de 100 MB, fora do checkpoint (Desfazer não restaura): ${names}` });
+    }
+    // A turn that adds this much to the checkpoints is worth seeing as it happens.
+    if (added && added.bytes > HEAVY_TURN_BYTES) {
+      const largest = added.largest.filter((file) => file.bytes > 0).map((file) => `${file.path} (${megabytes(file.bytes)})`).join(', ');
+      this.addEntry(chatId, { kind: 'notice', text: `Este turno somou ${megabytes(added.bytes)} aos checkpoints.${largest ? ` Maiores arquivos: ${largest}.` : ''}` });
+    }
   }
 
   /** Runs a Codex turn inside a Claude turn; its progress shows in the same chat. */
@@ -268,7 +289,7 @@ export class ChatService {
         },
       );
       const timeline = await this.context.finish(project, { chatId, agent: 'codex', prompt: task, result: state.lastMessage, beforeRef });
-      this.noteSkipped(chatId, timeline.skipped);
+      this.noteStorage(chatId, timeline);
       return [
         `Codex terminou (${state.status}).`,
         `Resposta do Codex: ${state.lastMessage || '(sem texto)'}`,

@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import type { AgentId, Project } from '@shared/types';
 import { Checkpoints } from '../checkpoints/checkpoints';
 import type { Store, TimelineEntry } from '../storage/store';
@@ -6,6 +8,15 @@ const AGENT_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', 
 const MAX_ENTRIES = 10;
 /** Turns whose checkpoints stay on disk per project. */
 const KEPT_TURNS = 10;
+
+function largestFiles(folder: string, files: string[]): { path: string; bytes: number }[] {
+  return files
+    .map((file) => {
+      try { return { path: file, bytes: statSync(path.join(folder, file)).size }; } catch { return { path: file, bytes: 0 }; }
+    })
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 3);
+}
 
 function clip(text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim();
@@ -74,15 +85,18 @@ export class Timeline {
   async finish(
     project: Project,
     turn: { chatId: string; agent: AgentId; prompt: string; result: string; beforeRef: string },
-  ): Promise<TimelineEntry & { skipped: string[] }> {
+  ): Promise<TimelineEntry & { skipped: string[]; added: { bytes: number; largest: { path: string; bytes: number }[] } }> {
     const checkpoints = this.forProject(project);
+    const storedBefore = await checkpoints.storedBytes();
     const afterRef = await checkpoints.snapshot('after turn');
     const files = (await checkpoints.changes(turn.beforeRef, afterRef)).map((change) => change.path);
+    // What this turn's files cost on disk, and which ones weigh most.
+    const added = { bytes: (await checkpoints.storedBytes()) - storedBefore, largest: largestFiles(project.path, files) };
     // Big files left out before or after the turn: undoing it cannot restore them.
     const skipped = [...new Set([...await checkpoints.skippedIn(turn.beforeRef), ...await checkpoints.skippedIn(afterRef)])];
     const entry = this.store.addTimeline({ projectId: project.id, ...turn, files, afterRef });
     await this.prune(project, checkpoints);
-    return { ...entry, skipped };
+    return { ...entry, skipped, added };
   }
 
   /** Keeps the snapshots of the last turns only: undo goes back one turn, so older ones are never read. */

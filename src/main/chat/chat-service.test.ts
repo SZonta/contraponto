@@ -62,6 +62,22 @@ function setup(scripts: { claude?: Script; codex?: Script }, summary: string | n
 
 describe('ChatService', () => {
 
+  it('warns in the chat about big files left out and heavy turns', async () => {
+    const { service, chat, store, turnsEnded, context } = setup({});
+    context.finish = async () => ({
+      id: 't1',
+      files: ['scene.blend'],
+      skipped: ['render.mp4'],
+      added: { bytes: 300 * 1024 * 1024, largest: [{ path: 'scene.blend', bytes: 250 * 1024 * 1024 }] },
+    });
+    service.send(chat.id, 'Ajuste a cena', []);
+    await turnsEnded();
+    const notices = store.listEntries(chat.id).flatMap((entry) => (entry.kind === 'notice' ? [entry.text] : []));
+    expect(notices).toContain('Acima de 100 MB, fora do checkpoint (Desfazer não restaura): render.mp4');
+    expect(notices).toContain('Este turno somou 300 MB aos checkpoints. Maiores arquivos: scene.blend (250 MB).');
+    store.close();
+  });
+
   it('names the chat from the whole first message without delaying its working turn', async () => {
     let resolve!: (title: string) => void;
     const generate = vi.fn(() => new Promise<string>((done) => { resolve = done; }));
