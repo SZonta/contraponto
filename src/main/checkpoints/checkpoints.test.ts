@@ -70,6 +70,39 @@ describe('Checkpoints', () => {
     expect(await checkpoints.skippedIn(snapshot)).toEqual(['big file.blend']);
   });
 
+  it('deletes snapshots older than the kept ones, never newer ones', async () => {
+    const shadow = path.join(root, 'keep.git');
+    const checkpoints = new Checkpoints(shadow, project);
+    const ids: string[] = [];
+    for (let turn = 0; turn < 6; turn++) {
+      writeFileSync(path.join(project, 'edit.txt'), `turn ${turn}`);
+      ids.push(await checkpoints.snapshot(`turn ${turn}`));
+    }
+
+    await checkpoints.keepOnly([ids[3], ids[4]]);
+
+    const left = execFileSync('git', ['--git-dir', shadow, 'for-each-ref', '--format=%(objectname)'], { encoding: 'utf8' }).trim().split('\n');
+    expect(left.sort()).toEqual([ids[3], ids[4], ids[5]].sort());
+    expect(await checkpoints.changes(ids[3], ids[5])).toEqual([{ status: 'modified', path: 'edit.txt' }]);
+  });
+
+  it('removes the files of deleted snapshots once enough were dropped', async () => {
+    const shadow = path.join(root, 'gc.git');
+    const checkpoints = new Checkpoints(shadow, project);
+    const ids: string[] = [];
+    for (let turn = 0; turn < 12; turn++) {
+      writeFileSync(path.join(project, 'edit.txt'), `turn ${turn}`);
+      ids.push(await checkpoints.snapshot(`turn ${turn}`));
+    }
+
+    await checkpoints.keepOnly([ids[11]]);
+
+    const stats = execFileSync('git', ['--git-dir', shadow, 'count-objects', '-v'], { encoding: 'utf8' });
+    expect(stats).toMatch(/^count: 0$/m);
+    expect(() => execFileSync('git', ['--git-dir', shadow, 'cat-file', '-e', ids[0]], { stdio: 'ignore' })).toThrow();
+    expect(await checkpoints.changes(ids[11], ids[11])).toEqual([]);
+  });
+
   it('restores a turn without touching the project repository', async () => {
     const checkpoints = new Checkpoints(path.join(root, 'shadow.git'), project);
     const before = await checkpoints.snapshot('before');

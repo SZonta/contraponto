@@ -14,6 +14,14 @@ export type FileChange = { status: 'added' | 'modified' | 'deleted'; path: strin
 /** Larger files are left out of checkpoints: one copy per changed version would fill the disk. */
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const SKIPPED_HEADER = 'Over the size limit, not in this checkpoint:';
+const SNAPSHOT_REFS = 'refs/contraponto/snapshots/';
+/** git gc rewrites the whole repository, so it waits until a few snapshots were dropped. */
+const GC_AFTER_DROPS = 10;
+
+/** The creation time in the name orders snapshots made within the same second. */
+function snapshotRef(time: number, id: string): string {
+  return `${SNAPSHOT_REFS}${String(time).padStart(15, '0')}-${id}`;
+}
 
 export const BUILT_IN_EXCLUDES =['node_modules/', '.venv/', 'venv/', '__pycache__/', '.godot/', '.cache/', '*.blend[0-9]', '*.blend@', '*.tmp'];
 
@@ -61,12 +69,45 @@ export class Checkpoints {
     const skipped = await this.oversized();
     await this.git('add', '--all', '--', '.', ...skipped.map((file) => `:(literal,exclude)${file}`));
     const tree = await this.git('write-tree');
-    const parent = await this.git('rev-parse', '--verify', '--quiet', 'refs/contraponto/head').catch(() => '');
     const note = skipped.length ? ['-m', [SKIPPED_HEADER, ...skipped].join('\n')] : [];
-    const commit = await this.git('commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', label, ...note);
-    await this.git('update-ref', 'refs/contraponto/head', commit);
+    // No parent: each snapshot stands alone, so old ones can be deleted without the newer ones.
+    const commit = await this.git('commit-tree', tree, '-m', label, ...note);
+    await this.git('update-ref', snapshotRef(Date.now(), commit), commit);
     return commit;
   }
+
+  /**
+   * Deletes the snapshots older than every one in `keep` and, now and then, the files only
+   * they used. Snapshots newer than those (a turn still running) always stay.
+   */
+  async keepOnly(keep: string[]): Promise<void> {
+    await this.ready;
+    const listed = await this.git('for-each-ref', '--format=%(refname) %(objectname)', SNAPSHOT_REFS);
+    const refs = listed.split('\n').filter(Boolean).map((line) => {
+      const [name, id] = line.split(' ');
+      return { name, id, time: Number(name.slice(SNAPSHOT_REFS.length).split('-')[0]) };
+    });
+    // Older versions only reached their snapshots through one chained ref. Pinned with time 0,
+    // they hold every newer snapshot until they leave the kept turns, so nothing in use is lost.
+    const known = new Set(refs.map((ref) => ref.id));
+    for (const id of keep.filter((item) => !known.has(item))) {
+      const name = snapshotRef(0, id);
+      if (await this.git('update-ref', name, id).then(() => true, () => false)) refs.push({ name, id, time: 0 });
+    }
+    const kept = refs.filter((ref) => keep.includes(ref.id));
+    const oldest = kept.length ? Math.min(...kept.map((ref) => ref.time)) : 0;
+    const drop = refs.filter((ref) => !keep.includes(ref.id) && ref.time < oldest);
+    if (!drop.length) return;
+    for (const ref of drop) await this.git('update-ref', '-d', ref.name);
+    await this.git('update-ref', '-d', 'refs/contraponto/head').catch(() => {});
+    this.dropped += drop.length;
+    if (this.dropped >= GC_AFTER_DROPS) {
+      this.dropped = 0;
+      await this.git('gc', '--prune=now', '--quiet');
+    }
+  }
+
+  private dropped = 0;
 
   /** Files a snapshot left out for being over the size limit; undo cannot bring them back. */
   async skippedIn(ref: string): Promise<string[]> {
