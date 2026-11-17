@@ -227,16 +227,23 @@ if (primaryInstance) app.whenReady().then(() => {
   powerMonitor.on('resume', resume);
   app.on('activate', showWindow);
 
-  // Fresh plan usage at startup; neither read spends tokens.
-  for (const agent of ['claude', 'codex'] as const) {
+  // Fresh plan usage at startup, and again whenever a known window resets; neither read spends tokens.
+  const reading = new Set<AgentId>();
+  const readUsage = (agent: AgentId) => {
+    if (reading.has(agent)) return;
+    reading.add(agent);
     adapters[agent]
       .readUsage()
       .then((report: Omit<AgentUsage, 'agent'> | null) => report && usage.update(agent, report))
-      .catch((error: unknown) => console.error(`[usage] ${agent}:`, error));
-  }
+      .catch((error: unknown) => console.error(`[usage] ${agent}:`, error))
+      .finally(() => reading.delete(agent));
+  };
+  for (const agent of ['claude', 'codex'] as const) readUsage(agent);
+  const usageTimer = setInterval(() => usage.stale().forEach(readUsage), 2 * 60_000);
 
   app.on('will-quit', () => {
     scheduler.stop();
+    clearInterval(usageTimer);
     powerMonitor.removeListener('resume', resume);
     titles.dispose();
     claude.dispose();

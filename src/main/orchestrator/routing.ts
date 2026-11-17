@@ -1,4 +1,5 @@
 import type { AgentId, AgentMode, AgentUsage, AppSettings, RoutingRule } from '@shared/types';
+import { isExpired } from '../usage/usage-service';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   routingRules: [
@@ -22,14 +23,15 @@ export type Route = {
   notice?: string;
 };
 
-function overQuota(usage: AgentUsage | undefined, threshold: number): number | null {
-  const percents = [usage?.fiveHour?.usedPercent, usage?.week?.usedPercent].filter((value): value is number => value !== undefined);
+function overQuota(usage: AgentUsage | undefined, threshold: number, now: number): number | null {
+  // A window past its reset time no longer limits the agent, even before a fresh report arrives.
+  const percents = [usage?.fiveHour, usage?.week].filter((window) => window && !isExpired(window, now)).map((window) => window!.usedPercent);
   const highest = percents.length ? Math.max(...percents) : null;
   return highest !== null && highest >= threshold ? highest : null;
 }
 
 /** Decides who answers a message: an @mention wins, then the chat's selector. */
-export function decideRoute(mode: AgentMode, text: string, usage: AgentUsage[], settings: AppSettings): Route {
+export function decideRoute(mode: AgentMode, text: string, usage: AgentUsage[], settings: AppSettings, now = Date.now()): Route {
   const mentionsClaude = /@claude\b/i.test(text);
   const mentionsCodex = /@codex\b/i.test(text);
   if (mentionsCodex && !mentionsClaude) return { agent: 'codex', delegate: false, codexBlocked: false };
@@ -37,8 +39,8 @@ export function decideRoute(mode: AgentMode, text: string, usage: AgentUsage[], 
   if (mode !== 'auto') return { agent: mode, delegate: false, codexBlocked: false };
 
   const { enabled, threshold } = settings.quotaSwitch;
-  const claudeOver = enabled ? overQuota(usage.find((item) => item.agent === 'claude'), threshold) : null;
-  const codexOver = enabled ? overQuota(usage.find((item) => item.agent === 'codex'), threshold) : null;
+  const claudeOver = enabled ? overQuota(usage.find((item) => item.agent === 'claude'), threshold, now) : null;
+  const codexOver = enabled ? overQuota(usage.find((item) => item.agent === 'codex'), threshold, now) : null;
   if (claudeOver !== null && codexOver === null) {
     return {
       agent: 'codex',

@@ -27,6 +27,13 @@ describe('decideRoute', () => {
     expect(route.notice).toContain('92%');
   });
 
+  it('keeps Claude once its full window has passed the reset time', () => {
+    const [claude, codex] = usage(100, 10);
+    const expired = [{ ...claude, fiveHour: { usedPercent: 100, resetsAt: 1000 } }, codex];
+    expect(decideRoute('auto', 'crie um baú', expired, DEFAULT_SETTINGS, 999).agent).toBe('codex');
+    expect(decideRoute('auto', 'crie um baú', expired, DEFAULT_SETTINGS, 1000)).toMatchObject({ agent: 'claude', delegate: true });
+  });
+
   it('blocks delegation when Codex passes the threshold', () => {
     expect(decideRoute('auto', 'crie um baú', usage(10, 95), DEFAULT_SETTINGS)).toMatchObject({ agent: 'claude', delegate: true, codexBlocked: true });
   });
