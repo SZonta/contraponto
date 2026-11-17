@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -39,6 +39,22 @@ describe('Checkpoints', () => {
       ]),
     );
     expect(changes).toHaveLength(3);
+  });
+
+  it('leaves dependencies, caches and Blender backups out even without a .gitignore', async () => {
+    const folder = path.join(root, 'scratch');
+    mkdirSync(path.join(folder, 'node_modules', 'pkg'), { recursive: true });
+    mkdirSync(path.join(folder, 'game', '.godot'), { recursive: true });
+    writeFileSync(path.join(folder, 'node_modules', 'pkg', 'index.js'), 'x');
+    writeFileSync(path.join(folder, 'game', '.godot', 'cache.bin'), 'x');
+    writeFileSync(path.join(folder, 'scene.blend'), 'x');
+    writeFileSync(path.join(folder, 'scene.blend1'), 'x');
+    const shadow = path.join(root, 'scratch.git');
+
+    const snapshot = await new Checkpoints(shadow, folder).snapshot('before');
+
+    const files = execFileSync('git', ['--git-dir', shadow, 'ls-tree', '-r', '--name-only', snapshot], { encoding: 'utf8' }).trim().split('\n');
+    expect(files).toEqual(['scene.blend']);
   });
 
   it('restores a turn without touching the project repository', async () => {

@@ -1,11 +1,17 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 
 export type FileChange = { status: 'added' | 'modified' | 'deleted'; path: string };
+
+/**
+ * Never worth a checkpoint, even in folders without a .gitignore: dependencies, caches and
+ * backups that their tools recreate (Blender's .blend1 backups and .blend@ saves included).
+ */
+export const BUILT_IN_EXCLUDES = ['node_modules/', '.venv/', 'venv/', '__pycache__/', '.godot/', '.cache/', '*.blend[0-9]', '*.blend@', '*.tmp'];
 
 /**
  * Snapshots of a project folder kept in a "shadow" git repository outside it.
@@ -27,13 +33,19 @@ export class Checkpoints {
       GIT_COMMITTER_NAME: 'Contraponto',
       GIT_COMMITTER_EMAIL: 'checkpoints@contraponto.local',
     };
+    let created: Promise<unknown> = Promise.resolve();
     if (!existsSync(shadowDir)) {
       mkdirSync(shadowDir, { recursive: true });
       // init must run without GIT_WORK_TREE; afterwards the repository is used with the project as its work tree.
-      this.ready = run('git', ['init', '--bare', '--quiet', shadowDir], { windowsHide: true })
+      created = run('git', ['init', '--bare', '--quiet', shadowDir], { windowsHide: true })
         .then(() => this.git('config', 'core.bare', 'false'))
         .then(() => this.git('config', 'core.autocrlf', 'false'));
     }
+    // Rewritten every start, so repositories made by older versions get the current list too.
+    this.ready = created.then(() => {
+      mkdirSync(path.join(shadowDir, 'info'), { recursive: true });
+      writeFileSync(path.join(shadowDir, 'info', 'exclude'), `${BUILT_IN_EXCLUDES.join('\n')}\n`);
+    });
   }
 
   private ready: Promise<unknown> = Promise.resolve();
