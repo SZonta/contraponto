@@ -57,6 +57,19 @@ describe('Checkpoints', () => {
     expect(files).toEqual(['scene.blend']);
   });
 
+  it('leaves files over the size limit out and records which ones', async () => {
+    const shadow = path.join(root, 'limit.git');
+    const checkpoints = new Checkpoints(shadow, project, 10);
+    writeFileSync(path.join(project, 'big file.blend'), 'x'.repeat(11));
+
+    const snapshot = await checkpoints.snapshot('after');
+
+    const files = execFileSync('git', ['--git-dir', shadow, 'ls-tree', '-r', '--name-only', snapshot], { encoding: 'utf8' });
+    expect(files).not.toContain('big file.blend');
+    expect(files).toContain('keep.txt');
+    expect(await checkpoints.skippedIn(snapshot)).toEqual(['big file.blend']);
+  });
+
   it('restores a turn without touching the project repository', async () => {
     const checkpoints = new Checkpoints(path.join(root, 'shadow.git'), project);
     const before = await checkpoints.snapshot('before');

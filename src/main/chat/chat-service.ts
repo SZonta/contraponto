@@ -26,7 +26,7 @@ export interface TurnContext {
   finish(
     project: Project,
     turn: { chatId: string; agent: AgentId; prompt: string; result: string; beforeRef: string },
-  ): Promise<{ id: string; files: string[] }>;
+  ): Promise<{ id: string; files: string[]; skipped?: string[] }>;
   undo(project: Project, timelineId: string): Promise<string[]>;
 }
 
@@ -222,12 +222,21 @@ export class ChatService {
     let timeline: { id: string; files: string[] } | null = null;
     if (beforeRef) {
       try {
-        timeline = await this.context.finish(project, { chatId, agent, prompt, result: state.lastMessage, beforeRef });
+        const finished = await this.context.finish(project, { chatId, agent, prompt, result: state.lastMessage, beforeRef });
+        this.noteSkipped(chatId, finished.skipped);
+        timeline = finished;
       } catch (error) {
         this.addEntry(chatId, { kind: 'error', agent, message: `Não consegui registrar o checkpoint: ${error instanceof Error ? error.message : String(error)}` });
       }
     }
     this.addEntry(chatId, { kind: 'turnEnd', agent, status: state.status, files: timeline?.files, timelineId: timeline?.id });
+  }
+
+  /** Tells the user which big files undo cannot bring back, at the turn that touched them. */
+  private noteSkipped(chatId: string, skipped: string[] | undefined) {
+    if (!skipped?.length) return;
+    const names = skipped.length > 5 ? `${skipped.slice(0, 5).join(', ')} e mais ${skipped.length - 5}` : skipped.join(', ');
+    this.addEntry(chatId, { kind: 'notice', text: `Acima de 100 MB, fora do checkpoint (Desfazer não restaura): ${names}` });
   }
 
   /** Runs a Codex turn inside a Claude turn; its progress shows in the same chat. */
@@ -259,6 +268,7 @@ export class ChatService {
         },
       );
       const timeline = await this.context.finish(project, { chatId, agent: 'codex', prompt: task, result: state.lastMessage, beforeRef });
+      this.noteSkipped(chatId, timeline.skipped);
       return [
         `Codex terminou (${state.status}).`,
         `Resposta do Codex: ${state.lastMessage || '(sem texto)'}`,

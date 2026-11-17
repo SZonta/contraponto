@@ -71,11 +71,13 @@ export class Timeline {
   async finish(
     project: Project,
     turn: { chatId: string; agent: AgentId; prompt: string; result: string; beforeRef: string },
-  ): Promise<TimelineEntry> {
+  ): Promise<TimelineEntry & { skipped: string[] }> {
     const checkpoints = this.forProject(project);
     const afterRef = await checkpoints.snapshot('after turn');
     const files = (await checkpoints.changes(turn.beforeRef, afterRef)).map((change) => change.path);
-    return this.store.addTimeline({ projectId: project.id, ...turn, files, afterRef });
+    // Big files left out before or after the turn: undoing it cannot restore them.
+    const skipped = [...new Set([...await checkpoints.skippedIn(turn.beforeRef), ...await checkpoints.skippedIn(afterRef)])];
+    return { ...this.store.addTimeline({ projectId: project.id, ...turn, files, afterRef }), skipped };
   }
 
   /** Only the most recent turn can be undone, and only while its files are still as it left them. */

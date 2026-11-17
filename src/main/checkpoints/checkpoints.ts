@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -11,7 +11,11 @@ export type FileChange = { status: 'added' | 'modified' | 'deleted'; path: strin
  * Never worth a checkpoint, even in folders without a .gitignore: dependencies, caches and
  * backups that their tools recreate (Blender's .blend1 backups and .blend@ saves included).
  */
-export const BUILT_IN_EXCLUDES = ['node_modules/', '.venv/', 'venv/', '__pycache__/', '.godot/', '.cache/', '*.blend[0-9]', '*.blend@', '*.tmp'];
+/** Larger files are left out of checkpoints: one copy per changed version would fill the disk. */
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const SKIPPED_HEADER = 'Over the size limit, not in this checkpoint:';
+
+export const BUILT_IN_EXCLUDES =['node_modules/', '.venv/', 'venv/', '__pycache__/', '.godot/', '.cache/', '*.blend[0-9]', '*.blend@', '*.tmp'];
 
 /**
  * Snapshots of a project folder kept in a "shadow" git repository outside it.
@@ -23,6 +27,7 @@ export class Checkpoints {
   constructor(
     shadowDir: string,
     private readonly workTree: string,
+    private readonly maxFileBytes = MAX_FILE_BYTES,
   ) {
     this.env = {
       ...process.env,
@@ -50,15 +55,32 @@ export class Checkpoints {
 
   private ready: Promise<unknown> = Promise.resolve();
 
-  /** Records the current state of the folder and returns the snapshot id. */
+  /** Records the current state of the folder and returns the snapshot id. Files over the size limit stay out. */
   async snapshot(label: string): Promise<string> {
     await this.ready;
-    await this.git('add', '--all', '--', '.');
+    const skipped = await this.oversized();
+    await this.git('add', '--all', '--', '.', ...skipped.map((file) => `:(literal,exclude)${file}`));
     const tree = await this.git('write-tree');
     const parent = await this.git('rev-parse', '--verify', '--quiet', 'refs/contraponto/head').catch(() => '');
-    const commit = await this.git('commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', label);
+    const note = skipped.length ? ['-m', [SKIPPED_HEADER, ...skipped].join('\n')] : [];
+    const commit = await this.git('commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', label, ...note);
     await this.git('update-ref', 'refs/contraponto/head', commit);
     return commit;
+  }
+
+  /** Files a snapshot left out for being over the size limit; undo cannot bring them back. */
+  async skippedIn(ref: string): Promise<string[]> {
+    const lines = (await this.git('log', '-1', '--format=%B', ref)).split('\n').map((line) => line.trim());
+    const start = lines.indexOf(SKIPPED_HEADER);
+    return start < 0 ? [] : lines.slice(start + 1).filter(Boolean);
+  }
+
+  /** New or changed files over the limit; unchanged ones are already in the repository. */
+  private async oversized(): Promise<string[]> {
+    const listed = await this.git('ls-files', '-z', '--others', '--modified', '--exclude-standard');
+    return [...new Set(listed.split('\0').filter(Boolean))].filter((file) => {
+      try { return statSync(path.join(this.workTree, file)).size > this.maxFileBytes; } catch { return false; }
+    });
   }
 
   async changes(from: string, to: string): Promise<FileChange[]> {
