@@ -19,7 +19,7 @@ const api: ContrapontoApi = {
   interrupt: invoke('interrupt') as ContrapontoApi['interrupt'],
   pickAttachments: invoke('pickAttachments') as ContrapontoApi['pickAttachments'],
   // Dropped files only expose their path here, in the preload.
-  attachFile: (file) => ipcRenderer.invoke('cp:attachPath', webUtils.getPathForFile(file)),
+  attachFile: (chatId, file) => ipcRenderer.invoke('cp:attachPath', chatId, webUtils.getPathForFile(file)),
   saveAttachment: invoke('saveAttachment') as ContrapontoApi['saveAttachment'],
   resolveApproval: invoke('resolveApproval') as ContrapontoApi['resolveApproval'],
   listPendingApprovals: invoke('listPendingApprovals') as ContrapontoApi['listPendingApprovals'],

@@ -129,9 +129,9 @@ export interface ContrapontoApi {
   listEntries(chatId: string): Promise<StoredEntry[]>;
   sendMessage(chatId: string, text: string, attachments: Attachment[]): Promise<void>;
   interrupt(chatId: string): Promise<void>;
-  pickAttachments(): Promise<Attachment[]>;
-  attachFile(file: File): Promise<Attachment>;
-  saveAttachment(name: string, mimeType: string, bytes: Uint8Array): Promise<Attachment>;
+  pickAttachments(chatId: string): Promise<Attachment[]>;
+  attachFile(chatId: string, file: File): Promise<Attachment>;
+  saveAttachment(chatId: string, name: string, mimeType: string, bytes: Uint8Array): Promise<Attachment>;
   resolveApproval(id: string, decision: ApprovalDecision): Promise<void>;
   listPendingApprovals(): Promise<ApprovalRequest[]>;
   runningChats(): Promise<string[]>;
