@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { TimelineEntry } from '../storage/store';
-import { buildCrossSummary } from './timeline';
+import { randomBytes } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { Store } from '../storage/store';
+import { buildCrossSummary, Timeline } from './timeline';
 
 function entry(agent: string, prompt: string, files: string[] = [], extra: Partial<TimelineEntry> = {}): TimelineEntry {
   return {
@@ -47,5 +52,31 @@ describe('buildCrossSummary', () => {
     const summary = buildCrossSummary(timeline, 'codex', [])!;
     expect(summary).toContain('pedido "um"');
     expect(summary).toContain('pedido "dois"');
+  });
+});
+
+describe('Timeline checkpoint budget', () => {
+  it('keeps only the last turn when a project goes over its budget, and says so when even that is over', async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'cp-budget-'));
+    const store = new Store(':memory:');
+    try {
+      const folder = path.join(root, 'game');
+      mkdirSync(folder);
+      const project = store.addProject(folder);
+      const turn = async (timeline: Timeline, index: number) => {
+        const beforeRef = await timeline.begin(project);
+        writeFileSync(path.join(folder, 'asset.bin'), randomBytes(100_000));
+        return timeline.finish(project, { chatId: 'c', agent: 'codex', prompt: `p${index}`, result: 'r', beforeRef });
+      };
+      const roomy = new Timeline(store, (id) => path.join(root, `${id}.git`), 250_000);
+      for (let index = 0; index < 2; index++) expect((await turn(roomy, index)).overBudgetBytes).toBeUndefined();
+      const third = await turn(roomy, 2);
+      expect(third.overBudgetBytes).toBeUndefined();
+      const tight = new Timeline(store, (id) => path.join(root, `${id}.git`), 10_000);
+      expect((await turn(tight, 3)).overBudgetBytes).toBeGreaterThan(10_000);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

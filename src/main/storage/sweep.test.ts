@@ -53,4 +53,18 @@ describe('storage sweep', () => {
 
     expect(existsSync(checkpointRepo(layout, project.id))).toBe(true);
   });
+
+  it('clears the checkpoints of a project only after a month without turns', async () => {
+    const layout = storageLayout(root);
+    const project = store.addProject(path.join(root, 'game'));
+    store.addTimeline({ projectId: project.id, chatId: null, agent: 'claude', prompt: 'p', result: 'r', files: [], beforeRef: 'a', afterRef: 'b' });
+    mkdirSync(checkpointRepo(layout, project.id), { recursive: true });
+    const lastTurn = store.listTimeline(project.id).at(-1)!.createdAt;
+
+    await sweepOrphans(layout, store, lastTurn + 29 * 24 * 60 * 60 * 1000);
+    expect(existsSync(checkpointRepo(layout, project.id))).toBe(true);
+
+    await sweepOrphans(layout, store, lastTurn + 31 * 24 * 60 * 60 * 1000);
+    expect(existsSync(checkpointRepo(layout, project.id))).toBe(false);
+  });
 });
