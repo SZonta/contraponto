@@ -80,7 +80,7 @@ export class Checkpoints {
    * Deletes the snapshots older than every one in `keep` and, now and then, the files only
    * they used. Snapshots newer than those (a turn still running) always stay.
    */
-  async keepOnly(keep: string[]): Promise<void> {
+  async keepOnly(keep: string[], compactNow = false): Promise<void> {
     await this.ready;
     const listed = await this.git('for-each-ref', '--format=%(refname) %(objectname)', SNAPSHOT_REFS);
     const refs = listed.split('\n').filter(Boolean).map((line) => {
@@ -97,11 +97,11 @@ export class Checkpoints {
     const kept = refs.filter((ref) => keep.includes(ref.id));
     const oldest = kept.length ? Math.min(...kept.map((ref) => ref.time)) : 0;
     const drop = refs.filter((ref) => !keep.includes(ref.id) && ref.time < oldest);
-    if (!drop.length) return;
+    if (!drop.length && !compactNow) return;
     for (const ref of drop) await this.git('update-ref', '-d', ref.name);
     await this.git('update-ref', '-d', 'refs/contraponto/head').catch(() => {});
     this.dropped += drop.length;
-    if (this.dropped >= GC_AFTER_DROPS) {
+    if (compactNow || this.dropped >= GC_AFTER_DROPS) {
       this.dropped = 0;
       await this.git('gc', '--prune=now', '--quiet');
     }

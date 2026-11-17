@@ -26,6 +26,8 @@ type FinishedTurn = {
   /** Files over the size limit, which undo cannot restore. */
   skipped?: string[];
   added?: { bytes: number; largest: { path: string; bytes: number }[] };
+  /** Size of the project's checkpoints when even keeping only the last turn is over the budget. */
+  overBudgetBytes?: number;
 };
 
 const HEAVY_TURN_BYTES = 200 * 1024 * 1024;
@@ -248,7 +250,10 @@ export class ChatService {
   }
 
   /** Tells the user, at the turn that did it, which big files undo cannot restore and what the turn cost. */
-  private noteStorage(chatId: string, { skipped, added }: Pick<FinishedTurn, 'skipped' | 'added'>) {
+  private noteStorage(chatId: string, { skipped, added, overBudgetBytes }: Omit<FinishedTurn, 'id' | 'files'>) {
+    if (overBudgetBytes) {
+      this.addEntry(chatId, { kind: 'notice', text: `Os checkpoints desta pasta ocupam ${megabytes(overBudgetBytes)} mesmo guardando só o último turno (teto: 2 GB). Ponha no .gitignore da pasta os arquivos grandes que não precisam voltar com Desfazer.` });
+    }
     if (skipped?.length) {
       const names = skipped.length > 5 ? `${skipped.slice(0, 5).join(', ')} e mais ${skipped.length - 5}` : skipped.join(', ');
       this.addEntry(chatId, { kind: 'notice', text: `Acima de 100 MB, fora do checkpoint (Desfazer não restaura): ${names}` });

@@ -8,6 +8,8 @@ const AGENT_NAMES: Record<string, string> = { claude: 'Claude', codex: 'Codex', 
 const MAX_ENTRIES = 10;
 /** Turns whose checkpoints stay on disk per project. */
 const KEPT_TURNS = 10;
+/** Checkpoints of one project above this keep only the last turn. */
+const PROJECT_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
 
 function largestFiles(folder: string, files: string[]): { path: string; bytes: number }[] {
   return files
@@ -64,6 +66,7 @@ export class Timeline {
   constructor(
     private readonly store: Store,
     private readonly repoFor: (projectId: string) => string,
+    private readonly budgetBytes = PROJECT_BUDGET_BYTES,
   ) {}
 
   begin(project: Project): Promise<string> {
@@ -85,7 +88,7 @@ export class Timeline {
   async finish(
     project: Project,
     turn: { chatId: string; agent: AgentId; prompt: string; result: string; beforeRef: string },
-  ): Promise<TimelineEntry & { skipped: string[]; added: { bytes: number; largest: { path: string; bytes: number }[] } }> {
+  ): Promise<TimelineEntry & { skipped: string[]; added: { bytes: number; largest: { path: string; bytes: number }[] }; overBudgetBytes?: number }> {
     const checkpoints = this.forProject(project);
     const storedBefore = await checkpoints.storedBytes();
     const afterRef = await checkpoints.snapshot('after turn');
@@ -95,14 +98,22 @@ export class Timeline {
     // Big files left out before or after the turn: undoing it cannot restore them.
     const skipped = [...new Set([...await checkpoints.skippedIn(turn.beforeRef), ...await checkpoints.skippedIn(afterRef)])];
     const entry = this.store.addTimeline({ projectId: project.id, ...turn, files, afterRef });
-    await this.prune(project, checkpoints);
-    return { ...entry, skipped, added };
+    const overBudgetBytes = await this.prune(project, checkpoints);
+    return { ...entry, skipped, added, overBudgetBytes };
   }
 
-  /** Keeps the snapshots of the last turns only: undo goes back one turn, so older ones are never read. */
-  private async prune(project: Project, checkpoints: Checkpoints): Promise<void> {
-    const keep = this.store.listTimeline(project.id).slice(-KEPT_TURNS).flatMap((entry) => [entry.beforeRef, entry.afterRef]);
-    await checkpoints.keepOnly(keep);
+  /**
+   * Keeps the snapshots of the last turns only: undo goes back one turn, so older ones are never read.
+   * Over the project's budget, only the last turn stays. Returns the size when even that is over.
+   */
+  private async prune(project: Project, checkpoints: Checkpoints): Promise<number | undefined> {
+    const timeline = this.store.listTimeline(project.id);
+    const refsOf = (entries: TimelineEntry[]) => entries.flatMap((entry) => [entry.beforeRef, entry.afterRef]);
+    await checkpoints.keepOnly(refsOf(timeline.slice(-KEPT_TURNS)));
+    if (await checkpoints.storedBytes() <= this.budgetBytes) return undefined;
+    await checkpoints.keepOnly(refsOf(timeline.slice(-1)), true);
+    const stored = await checkpoints.storedBytes();
+    return stored > this.budgetBytes ? stored : undefined;
   }
 
   /** Only the most recent turn can be undone, and only while its files are still as it left them. */
