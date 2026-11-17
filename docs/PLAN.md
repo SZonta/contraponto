@@ -206,6 +206,23 @@ Melhoradas identidade da IA ativa, progresso, aprovações, composer, estados va
 Verificados 103 testes (64 na linha de base), typecheck e build; turnos reais do Codex, uma delegação com Haiku/low e Desfazer conferidos.
 Sem dependências novas nem alterações na lógica principal; proposta estrutural não aplicada e limites em [phase5-ux-report.md](phase5-ux-report.md).
 
+### Fase 6 — Armazenamento com limites (~34h) — planejada em 2026-11-17
+Medição de 2026-11-16: `%APPDATA%\contraponto` com 1,25 GB após ~27 h de uso, quase tudo lixo: 792 MB de repositórios-sombra de chats apagados e 346 MB em `previews`. Fora dele, 367 MB da cópia `%LOCALAPPDATA%\contraponto-updater\installer.exe`. O "1,20 GB" do Windows é o tamanho da instalação, gravado pelo instalador, e não cresce com o uso.
+
+Princípios para toda feature: todo arquivo tem dono (chat, projeto ou app) e some com ele; toda pasta tem classe (dado do usuário, derivado, descartável) e prazo; todo crescimento tem teto e aviso; um mapa único de pastas; medir antes e depois.
+
+Os checkpoints ocupam, na prática, uma cópia comprimida da pasta mais o que mudou no último turno (as 2 últimas versões somam ~99% de cada repositório). O que mais reduz espaço é o que entra neles; a retenção protege contra arquivos grandes alterados turno após turno.
+
+1. **Medir, mapear e limpar (~6h):** medidor por categoria; mapa único `src/main/storage/layout.ts` e dados de dev em `%APPDATA%\contraponto-dev`; pasta por chat `chat-files\<chatId>\` (`attachments`, `previews`, `tmp`) com a instrução dos agentes apontando para ela; apagar o chat apaga também o repositório-sombra dele, e a varredura ao iniciar cobre `shadow` e `chat-files` sem dono; limpeza única de ~1,6 GB.
+2. **Checkpoints com limite (~8h):** exclusões embutidas no `info/exclude` (`node_modules`, `.venv`, `__pycache__`, `.godot`, `*.blend1`, `.cache`, `*.tmp`); limite de 100 MB por arquivo, com aviso de que o arquivo não volta com Desfazer; só os últimos 10 turnos, snapshots sem encadeamento e `git gc --prune`; projeto parado há 30 dias perde os checkpoints; custo de cada turno salvo, com aviso acima de 200 MB; teto de 2 GB por projeto e 5 GB no total.
+3. **Limites para o resto (~6h):** banco com `auto_vacuum` incremental, índice `chats(project_id, updated_at)` e timeline com as últimas 50 por projeto; agendamentos mantêm só as últimas 10 execuções; logs com rotação 3 × 5 MB em `logs\`; apagar o chat apaga a sessão dele no Claude e o rollout dele no Codex (o resto de `~/.claude` e `~/.codex` só é medido).
+4. **Limpeza automática e painel (~8h):** limpeza 1 min após abrir e a cada 24 h, só dentro das pastas do mapa, sem seguir junction/symlink, nunca durante um turno do mesmo projeto, com log de cada exclusão; painel "Armazenamento" nas Configurações (visual: Codex); aviso único ao passar de 80% de um teto; histórico semanal de tamanho por categoria.
+5. **Instalador, repositório, documentação e regras (~6h, independente das outras):** só `pt-BR` e `en-US` (−47 MB); `customInstall` no NSIS apaga a cópia `installer.exe` enquanto não houver auto-update (−367 MB); `npm run dist` limpa `dist/` e falha acima do teto de tamanho; este plano só com estado atual (fase concluída vira 1 linha), relatórios em `docs/archive/`, `docs/images` com teto de 10 MB e imagens ≤ 500 KB; aviso em vez de corte silencioso das regras em 20.000 caracteres e instruções do app com teto de 3.000; feature que grava em disco declara a pasta no mapa e tem teste de cascata.
+
+Decisões do usuário (2026-11-17): limite de 100 MB por arquivo; apagar o chat apaga as transcrições dele; limpeza única autorizada (o vídeo final está em `Downloads`); agendamentos guardam as últimas 10 execuções.
+
+Adiado até o gatilho: banco > 500 MB ou > 1.000 chats → arquivar chats parados e paginar a barra lateral; chat > 2.000 entradas → carregar em partes; projeto > 2 GB de checkpoints → usar o git do próprio projeto; auto-update no plano → decidir CLIs baixadas à parte; regras globais > 15.000 caracteres → separar "sempre" e "sob demanda".
+
 ---
 
 ## 5. Riscos e plano B
