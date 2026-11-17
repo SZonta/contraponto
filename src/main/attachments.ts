@@ -19,22 +19,26 @@ export function mimeTypeFor(file: string): string {
   return MIME_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
 }
 
-/** Attachments are copied into the app's data folder, so the project stays untouched. */
+/** Attachments are copied into the chat's own folder in the app's data, so the project stays untouched. */
 export class AttachmentStore {
-  constructor(private readonly folder: string) {
-    mkdirSync(folder, { recursive: true });
-  }
+  constructor(private readonly folderFor: (chatId: string) => string) {}
 
-  copy(source: string): Attachment {
+  copy(chatId: string, source: string): Attachment {
     const name = path.basename(source);
-    const target = path.join(this.folder, `${randomUUID()}-${name}`);
+    const target = this.target(chatId, name);
     copyFileSync(source, target);
     return { name, path: target, mimeType: mimeTypeFor(source) };
   }
 
-  save(name: string, mimeType: string, bytes: Uint8Array): Attachment {
-    const target = path.join(this.folder, `${randomUUID()}-${path.basename(name)}`);
+  save(chatId: string, name: string, mimeType: string, bytes: Uint8Array): Attachment {
+    const target = this.target(chatId, path.basename(name));
     writeFileSync(target, bytes);
     return { name, path: target, mimeType };
+  }
+
+  private target(chatId: string, name: string): string {
+    const folder = this.folderFor(chatId);
+    mkdirSync(folder, { recursive: true });
+    return path.join(folder, `${randomUUID()}-${name}`);
   }
 }

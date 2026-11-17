@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import { normalizeChatTitle } from '@shared/chat-title';
 import type { AgentId, ApprovalDecision, ApprovalRequest, Attachment, Chat, ChatSettings, Project, StoredEntry, UiEvent } from '@shared/types';
 import type { AdapterEvent, AgentAdapter, ApprovalPrompt, TurnInput } from '../agents/adapter';
@@ -9,6 +10,7 @@ import {
   globalRulesForCodex,
   joinInstructions,
   projectRulesForClaude,
+  workFilesNote,
 } from '../orchestrator/instructions';
 import { decideRoute, routingInstructions } from '../orchestrator/routing';
 import type { SettingsService } from '../orchestrator/settings-service';
@@ -57,9 +59,18 @@ export class ChatService {
     private readonly settings: SettingsService,
     private readonly context: TurnContext,
     private readonly emit: (event: UiEvent) => void,
-    private readonly preview?: { script: string; directory: string },
+    private readonly files?: { previewScript: string; foldersFor: (chatId: string) => { previews: string; tmp: string } },
     private readonly generateTitle?: (text: string, agent: AgentId) => Promise<string | null>,
   ) {}
+
+  /** Where this chat's previews and temporary work go; both folders are removed with the chat. */
+  private fileNotes(chatId: string): string | undefined {
+    if (!this.files) return undefined;
+    const folders = this.files.foldersFor(chatId);
+    mkdirSync(folders.previews, { recursive: true });
+    mkdirSync(folders.tmp, { recursive: true });
+    return joinInstructions(workFilesNote(folders.tmp), blenderInstructions(this.files.previewScript, folders.previews));
+  }
 
   runningChats(): string[] {
     return [...this.running];
@@ -172,10 +183,10 @@ export class ChatService {
               projectRulesForClaude(project.path),
               route.delegate ? routingInstructions(settings.routingRules) : null,
               IMAGE_DISPLAY_NOTE,
-              this.preview ? blenderInstructions(this.preview.script, this.preview.directory) : null,
+              this.fileNotes(chatId),
             )
           : joinInstructions(globalRulesForCodex(), CODEX_TEAM_NOTE, IMAGE_DISPLAY_NOTE,
-              this.preview ? blenderInstructions(this.preview.script, this.preview.directory) : null);
+              this.fileNotes(chatId));
       await this.adapters[route.agent].sendTurn(
         {
           ...this.agentSettings(chat, route.agent),
@@ -240,7 +251,7 @@ export class ChatService {
           text: summary ? `${summary}\n\n${brief}` : brief,
           attachments: [],
           instructions: joinInstructions(globalRulesForCodex(), CODEX_TEAM_NOTE, IMAGE_DISPLAY_NOTE,
-            this.preview ? blenderInstructions(this.preview.script, this.preview.directory) : null),
+            this.fileNotes(chatId)),
         },
         {
           emit: (event) => this.handle(chatId, 'codex', event, state),

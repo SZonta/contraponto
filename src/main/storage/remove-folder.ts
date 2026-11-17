@@ -1,5 +1,11 @@
 import path from 'node:path';
-import { lstat, readdir, rmdir, unlink } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import * as nodeFs from 'node:fs/promises';
+
+// Inside Electron, node:fs opens .asar files as virtual folders; original-fs sees the plain files they are.
+const { lstat, readdir, rmdir, unlink }: typeof nodeFs = process.versions.electron
+  ? createRequire(import.meta.url)('original-fs').promises
+  : nodeFs;
 
 const LOCKED = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY']);
 

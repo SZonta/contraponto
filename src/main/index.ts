@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, powerMonitor, powerSaveBlocker, protocol, shell, Tray } from 'electron';
 import { CHAT_TITLE_LIMIT } from '@shared/chat-title';
@@ -14,11 +14,16 @@ import { stripHostAgentEnv } from './env';
 import { SettingsService } from './orchestrator/settings-service';
 import { Timeline } from './timeline/timeline';
 import { Store } from './storage/store';
-import { removeFolder } from './storage/remove-folder';
+import { chatFolders, checkpointRepo, storageLayout } from './storage/layout';
+import { removeChatData, sweepOrphans } from './storage/sweep';
 import { UsageService } from './usage/usage-service';
 import { Scheduler } from './scheduler/scheduler';
 
 stripHostAgentEnv();
+
+// Development runs keep their own data, so they never touch the installed app's chats.
+if (!app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), 'contraponto-dev'));
+const layout = storageLayout(app.getPath('userData'));
 
 // Development only: lets scripts drive the window through the DevTools protocol.
 if (import.meta.env.DEV && !app.isPackaged && process.env.CONTRAPONTO_DEBUG_PORT) app.commandLine.appendSwitch('remote-debugging-port', process.env.CONTRAPONTO_DEBUG_PORT);
@@ -78,7 +83,7 @@ function createWindow(): void {
   });
   // A crashed renderer leaves a blank window; record why and load the UI again.
   window.webContents.on('render-process-gone', (_event, details) => {
-    appendFileSync(path.join(app.getPath('userData'), 'renderer-crash.log'), `${new Date().toISOString()} ${details.reason} ${details.exitCode}\n`);
+    appendFileSync(layout.crashLog, `${new Date().toISOString()} ${details.reason} ${details.exitCode}\n`);
     if (details.reason !== 'clean-exit') window?.reload();
   });
   window.on('closed', () => {
@@ -92,16 +97,6 @@ function createWindow(): void {
   });
 }
 
-/** Removes private chat folders no chat uses anymore (left by locked deletes or older versions). */
-function sweepScratchFolders(root: string, store: Store): void {
-  const used = new Set(store.listProjects().filter((project) => project.scratch).map((project) => path.resolve(project.path).toLowerCase()));
-  let names: string[];
-  try { names = readdirSync(root); } catch { return; }
-  for (const name of names) {
-    const folder = path.resolve(root, name);
-    if (!used.has(folder.toLowerCase())) void removeFolder(folder).catch(() => {});
-  }
-}
 
 const primaryInstance = app.requestSingleInstanceLock();
 if (!primaryInstance) app.quit();
@@ -112,24 +107,21 @@ app.on('window-all-closed', () => {});
 
 if (primaryInstance) app.whenReady().then(() => {
   app.setAppUserModelId('dev.szonta.contraponto');
-  const dataFolder = app.getPath('userData');
-  const store = new Store(path.join(dataFolder, 'contraponto.db'));
+  const store = new Store(layout.database);
   // Development only: registers a folder without the picker, for scripted checks.
   if (import.meta.env.DEV && !app.isPackaged && process.env.CONTRAPONTO_SEED_PROJECT) store.addProject(process.env.CONTRAPONTO_SEED_PROJECT);
-  sweepScratchFolders(path.join(dataFolder, 'chats'), store);
-  const attachments = new AttachmentStore(path.join(dataFolder, 'attachments'));
+  void sweepOrphans(layout, store);
+  const attachments = new AttachmentStore((chatId) => chatFolders(layout, chatId).attachments);
   const usage = new UsageService(store, emit);
   const claude = new ClaudeAdapter();
   const codex = new CodexAdapter();
   codex.onUsage = (report) => usage.update('codex', report);
   const adapters: Record<AgentId, ClaudeAdapter | CodexAdapter> = { claude, codex };
   const settings = new SettingsService(store);
-  const timeline = new Timeline(store, path.join(dataFolder, 'shadow'));
-  const previews = path.join(dataFolder, 'previews');
-  mkdirSync(previews, { recursive: true });
+  const timeline = new Timeline(store, (projectId) => checkpointRepo(layout, projectId));
   const previewScript = app.isPackaged ? path.join(process.resourcesPath, 'blender/render_preview.py') : path.resolve(here, '../../scripts/blender/render_preview.py');
   const titles = new ChatTitleGenerator();
-  const chats = new ChatService(store, adapters, usage, settings, timeline, emit, { script: previewScript, directory: previews }, (text, agent) => titles.generate(text, agent));
+  const chats = new ChatService(store, adapters, usage, settings, timeline, emit, { previewScript, foldersFor: (chatId) => chatFolders(layout, chatId) }, (text, agent) => titles.generate(text, agent));
   const scheduler = new Scheduler(store, async (schedule) => {
     const chat = schedule.continueChat ? store.getChat(schedule.chatId!) : store.createChat(schedule.projectId, { ...schedule.settings, title: Array.from(schedule.name).length <= CHAT_TITLE_LIMIT ? schedule.name : undefined });
     if (!chat || chat.projectId !== schedule.projectId) throw new Error('O chat do agendamento foi apagado. Edite o agendamento.');
@@ -156,7 +148,7 @@ if (primaryInstance) app.whenReady().then(() => {
     const last = store.listChats(projectId)[0];
     if (!projectId) {
       // Without a folder, the agents work in a private folder of their own.
-      const folder = path.join(dataFolder, 'chats', randomUUID());
+      const folder = path.join(layout.chats, randomUUID());
       mkdirSync(folder, { recursive: true });
       projectId = store.addProject(folder, true).id;
     }
@@ -178,19 +170,26 @@ if (primaryInstance) app.whenReady().then(() => {
   });
   handle('updateChat', (chatId: string, settings: ChatSettings) => store.updateChat(chatId, settings));
   handle('deleteChat', (chatId: string) => {
+    const chat = store.getChat(chatId);
     claude.closeChat(chatId);
     store.deleteChat(chatId);
+    if (chat) void removeChatData(layout, store, chat.id, chat.projectId);
   });
-  handle('discardEmptyChat', (chatId: string) => store.deleteChatIfEmpty(chatId));
+  handle('discardEmptyChat', (chatId: string) => {
+    const chat = store.getChat(chatId);
+    const deleted = store.deleteChatIfEmpty(chatId);
+    if (deleted && chat) void removeChatData(layout, store, chat.id, chat.projectId);
+    return deleted;
+  });
   handle('listEntries',(chatId: string) => store.listEntries(chatId));
   handle('sendMessage', (chatId: string, text: string, files: Attachment[]) => chats.send(chatId, text, files));
   handle('interrupt', (chatId: string) => chats.interrupt(chatId));
-  handle('pickAttachments', async () => {
+  handle('pickAttachments', async (chatId: string) => {
     const result = await dialog.showOpenDialog(window!, { title: 'Anexar arquivos', properties: ['openFile', 'multiSelections'] });
-    return result.canceled ? [] : result.filePaths.map((file) => attachments.copy(file));
+    return result.canceled ? [] : result.filePaths.map((file) => attachments.copy(chatId, file));
   });
-  handle('attachPath', (file: string) => attachments.copy(file));
-  handle('saveAttachment', (name: string, mimeType: string, bytes: Uint8Array) => attachments.save(name, mimeType, bytes));
+  handle('attachPath', (chatId: string, file: string) => attachments.copy(chatId, file));
+  handle('saveAttachment', (chatId: string, name: string, mimeType: string, bytes: Uint8Array) => attachments.save(chatId, name, mimeType, bytes));
   handle('resolveApproval', (id: string, decision: ApprovalDecision) => chats.resolveApproval(id, decision));
   handle('listPendingApprovals', () => chats.pendingApprovals());
   handle('runningChats', () => chats.runningChats());

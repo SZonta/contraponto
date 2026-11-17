@@ -108,8 +108,8 @@ export function Composer({ chat, project, canChooseFolder, onChooseFolder, model
     setAttaching(true); setError(null);
     try {
       const added = await Promise.all(files.map(async (file) => {
-        try { return await api.attachFile(file); }
-        catch { return api.saveAttachment(file.name || 'image.png', file.type || 'application/octet-stream', new Uint8Array(await file.arrayBuffer())); }
+        try { return await api.attachFile(chat.id, file); }
+        catch { return api.saveAttachment(chat.id, file.name || 'image.png', file.type || 'application/octet-stream', new Uint8Array(await file.arrayBuffer())); }
       }));
       onDraft((current) => ({ ...current, attachments: [...current.attachments, ...added] }));
     } catch (reason) { setError(`Não foi possível anexar. ${readableError(reason)}`); }
@@ -157,7 +157,7 @@ export function Composer({ chat, project, canChooseFolder, onChooseFolder, model
           <button type="button" disabled={attaching} aria-label={attaching ? 'Anexando arquivos' : 'Anexar arquivos'} aria-busy={attaching} title="Anexar arquivos" className="composer-tool"
             onClick={async () => {
               setError(null); setAttaching(true);
-              try { const files = await api.pickAttachments(); onDraft((current) => ({ ...current, attachments: [...current.attachments, ...files] })); }
+              try { const files = await api.pickAttachments(chat.id); onDraft((current) => ({ ...current, attachments: [...current.attachments, ...files] })); }
               catch (reason) { setError(readableError(reason)); } finally { setAttaching(false); }
             }}><ComposerIcon name="attach" /></button>
           <button type="button" disabled={blocked || attaching || !canChooseFolder} aria-label={`Pasta: ${folderName}`}

@@ -34,6 +34,12 @@ export const IMAGE_DISPLAY_NOTE =
   'No chat do Contraponto, você não anexa arquivos, mas pode mostrar imagens ao usuário: escreva na resposta ' +
   '![descrição](caminho), com o caminho absoluto ou relativo à pasta do projeto. O app exibe a imagem dentro do chat.';
 
+/** Keeps tools and scratch work out of the project and out of the app's shared folders. */
+export function workFilesNote(tmp: string): string {
+  return `Ferramentas, downloads e arquivos temporários que não fazem parte do projeto vão em ${tmp}; essa pasta é apagada junto com o chat. ` +
+    'Não instale ferramentas nem guarde arquivos de trabalho em outras pastas do app.';
+}
+
 export function blenderInstructions(script: string, directory: string): string {
   return [
     'Preview 3D no Contraponto:',

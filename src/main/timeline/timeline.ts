@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { AgentId, Project } from '@shared/types';
 import { Checkpoints } from '../checkpoints/checkpoints';
 import type { Store, TimelineEntry } from '../storage/store';
@@ -51,7 +50,7 @@ export class Timeline {
 
   constructor(
     private readonly store: Store,
-    private readonly shadowRoot: string,
+    private readonly repoFor: (projectId: string) => string,
   ) {}
 
   begin(project: Project): Promise<string> {
@@ -111,7 +110,7 @@ export class Timeline {
   private forProject(project: Project): Checkpoints {
     let checkpoints = this.checkpoints.get(project.id);
     if (!checkpoints) {
-      checkpoints = new Checkpoints(path.join(this.shadowRoot, `${project.id}.git`), project.path);
+      checkpoints = new Checkpoints(this.repoFor(project.id), project.path);
       this.checkpoints.set(project.id, checkpoints);
     }
     return checkpoints;
